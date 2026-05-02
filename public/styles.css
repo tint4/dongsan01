@@ -1,0 +1,311 @@
+:root {
+  color-scheme: light;
+  --ink: #252525;
+  --muted: #737373;
+  --line: #dfe7e2;
+  --green: #03c75a;
+  --green-dark: #039447;
+  --paper: #ffffff;
+  --soft: #f5faf7;
+  --accent: #2d6cdf;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #eef3f0;
+  color: var(--ink);
+  font-family: Arial, "Malgun Gothic", sans-serif;
+  line-height: 1.6;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.app-shell {
+  width: min(980px, calc(100% - 32px));
+  margin: 28px auto 60px;
+}
+
+.search-panel {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+  padding: 24px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.blog-name {
+  margin: 0 0 6px;
+  color: var(--green-dark);
+  font-weight: 700;
+}
+
+h1 {
+  margin: 0;
+  font-size: 28px;
+  letter-spacing: 0;
+}
+
+.search-form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  align-items: end;
+  position: relative;
+}
+
+label span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #cfd8d2;
+  border-radius: 6px;
+  padding: 0 12px;
+  background: #fff;
+  color: var(--ink);
+}
+
+input:disabled {
+  background: #f2f2f2;
+}
+
+button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 16px;
+  background: var(--green);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:disabled {
+  background: #b7c3bd;
+  cursor: not-allowed;
+}
+
+.suggestions {
+  display: none;
+  position: absolute;
+  z-index: 10;
+  width: calc((100% - 36px) / 4);
+  max-height: 260px;
+  overflow: auto;
+  margin-top: 72px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
+}
+
+#depList {
+  left: 0;
+}
+
+#arrList {
+  left: calc((100% - 36px) / 4 + 12px);
+}
+
+.suggestions.open {
+  display: block;
+}
+
+.suggestion {
+  width: 100%;
+  min-height: auto;
+  padding: 10px 12px;
+  border-radius: 0;
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+  font-weight: 400;
+}
+
+.suggestion:hover {
+  background: var(--soft);
+}
+
+.suggestion small {
+  display: block;
+  color: var(--muted);
+}
+
+.status {
+  min-height: 24px;
+  margin: 0;
+  color: var(--muted);
+}
+
+.result-tools {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin: 14px 0;
+}
+
+.result-tools button {
+  background: #334155;
+}
+
+.blog-post {
+  width: min(760px, 100%);
+  margin: 0 auto;
+  padding: 34px 38px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+}
+
+.empty {
+  margin: 0;
+  color: var(--muted);
+  text-align: center;
+}
+
+.post-kicker {
+  margin: 0 0 8px;
+  color: var(--green-dark);
+  font-weight: 700;
+}
+
+.post-title {
+  margin: 0 0 10px;
+  font-size: 30px;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+.post-meta {
+  margin: 0 0 22px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.summary-box {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  margin: 24px 0;
+  border: 1px solid var(--line);
+  background: var(--line);
+}
+
+.summary-item {
+  padding: 14px;
+  background: var(--soft);
+}
+
+.summary-item strong {
+  display: block;
+  color: var(--green-dark);
+  font-size: 13px;
+}
+
+.summary-item span {
+  display: block;
+  margin-top: 4px;
+  font-weight: 700;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 18px 0;
+  font-size: 14px;
+}
+
+th,
+td {
+  border: 1px solid var(--line);
+  padding: 10px 8px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+th {
+  background: #ecf8f1;
+  color: #14532d;
+}
+
+td:nth-child(2),
+td:nth-child(3),
+td:nth-child(4) {
+  text-align: left;
+}
+
+.note {
+  margin: 18px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+@media (max-width: 780px) {
+  .search-form {
+    grid-template-columns: 1fr;
+  }
+
+  .suggestions,
+  #arrList {
+    position: static;
+    width: 100%;
+    margin-top: -8px;
+  }
+
+  .summary-box {
+    grid-template-columns: 1fr;
+  }
+
+  .blog-post {
+    padding: 24px 18px;
+  }
+
+  .result-tools {
+    justify-content: stretch;
+    flex-wrap: wrap;
+  }
+
+  .result-tools button {
+    flex: 1 1 140px;
+  }
+}
+
+@media print {
+  body {
+    background: #fff;
+  }
+
+  .search-panel,
+  .result-tools {
+    display: none;
+  }
+
+  .app-shell {
+    width: 100%;
+    margin: 0;
+  }
+
+  .blog-post {
+    width: 100%;
+    border: 0;
+    padding: 0;
+  }
+}
