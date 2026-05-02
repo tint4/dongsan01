@@ -320,6 +320,24 @@ th {
   color: #14532d;
 }
 
+.route-info-table {
+  margin-bottom: 20px;
+}
+
+.route-info-table th {
+  width: 18%;
+}
+
+.route-info-table td {
+  text-align: left;
+  font-weight: 700;
+}
+
+.route-info-table td:nth-child(2),
+.route-info-table td:nth-child(4) {
+  width: 32%;
+}
+
 td:nth-child(2),
 td:nth-child(3),
 td:nth-child(4) {
