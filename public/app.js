@@ -1,4 +1,8 @@
-const state = { dep: null, arr: null, lastResult: null };
+const state = {
+  dep: null,
+  arr: null,
+  lastResult: null
+};
 
 const depInput = document.querySelector("#depInput");
 const arrInput = document.querySelector("#arrInput");
@@ -28,11 +32,11 @@ naverCategoryInput.value = localStorage.getItem("naverCategoryNo") || "";
 mapClientIdInput.value = localStorage.getItem("naverMapClientId") || "";
 
 const MAIN_TERMINALS = [
-  { id: "0001", name: "동서울", area: "서울", lat: 37.5341, lng: 127.0947 },
   { id: "0004", name: "서울남부", area: "서울", lat: 37.4849, lng: 127.0167 },
-  { id: "0002", name: "상봉", area: "서울", lat: 37.5966, lng: 127.0858 },
   { id: "0010", name: "김포공항", area: "서울", lat: 37.5585, lng: 126.7945 },
-  { id: "0009", name: "잠실역", area: "서울", lat: 37.5133, lng: 127.1001 }
+  { id: "0001", name: "동서울", area: "서울", lat: 37.5341, lng: 127.0947 },
+  { id: "9002", name: "부산서부", area: "부산", lat: 35.1631, lng: 128.9846 },
+  { id: "9401", name: "광주(유ㆍ스퀘어)", area: "광주", lat: 35.1601, lng: 126.8808 }
 ];
 
 function setStatus(message, isError = false) {
@@ -48,7 +52,17 @@ function money(value) {
 function prettyDate(value) {
   if (!value) return "";
   const date = new Date(`${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}T00:00:00`);
-  return new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "short" }).format(date);
+  return new Intl.DateTimeFormat("ko-KR", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "short"
+  }).format(date);
+}
+
+function plainDate(value) {
+  if (!value || value.length < 8) return "";
+  return `${value.slice(0, 4)}년 ${Number(value.slice(4, 6))}월 ${Number(value.slice(6, 8))}일`;
 }
 
 async function apiGet(path) {
@@ -80,6 +94,7 @@ function renderSuggestions(target, items, onPick) {
     target.classList.remove("open");
     return;
   }
+
   items.forEach((item) => {
     const button = document.createElement("button");
     button.type = "button";
@@ -91,6 +106,7 @@ function renderSuggestions(target, items, onPick) {
     });
     target.appendChild(button);
   });
+
   target.classList.add("open");
 }
 
@@ -112,6 +128,7 @@ function selectTerminal(kind, terminal) {
     setStatus(`${terminal.name} 출발지가 선택되었습니다.`);
     return;
   }
+
   state.arr = terminal;
   arrInput.value = terminal.name;
   arrList.classList.remove("open");
@@ -155,14 +172,33 @@ function chooseMapLevel(dep, arr) {
 }
 
 async function makeRouteMap() {
-  if (!state.dep || !state.arr) return setStatus("출발지와 도착지를 먼저 선택해 주세요.", true);
-  if (!lonLat(state.dep) || !lonLat(state.arr)) return setStatus("지도 그림은 주요 터미널 버튼으로 선택한 출발지와 도착지만 만들 수 있습니다.", true);
+  if (!state.dep || !state.arr) {
+    setStatus("출발지와 도착지를 먼저 선택해 주세요.", true);
+    return;
+  }
+  if (!lonLat(state.dep) || !lonLat(state.arr)) {
+    setStatus("지도 그림은 주요 터미널 박스로 선택한 출발지와 도착지만 만들 수 있습니다.", true);
+    return;
+  }
+
   const keyId = mapClientIdInput.value.trim();
   const keySecret = mapClientSecretInput.value.trim();
-  if (!keyId || !keySecret) return setStatus("네이버 지도 Client ID와 Client Secret을 입력해 주세요.", true);
+  if (!keyId || !keySecret) {
+    setStatus("네이버 지도 Client ID와 Client Secret을 입력해 주세요.", true);
+    return;
+  }
   localStorage.setItem("naverMapClientId", keyId);
+
   const center = `${(state.dep.lng + state.arr.lng) / 2},${(state.dep.lat + state.arr.lat) / 2}`;
-  const params = new URLSearchParams({ keyId, keySecret, center, level: chooseMapLevel(state.dep, state.arr), dep: lonLat(state.dep), arr: lonLat(state.arr) });
+  const params = new URLSearchParams({
+    keyId,
+    keySecret,
+    center,
+    level: chooseMapLevel(state.dep, state.arr),
+    dep: lonLat(state.dep),
+    arr: lonLat(state.arr)
+  });
+
   try {
     makeMapBtn.disabled = true;
     setStatus("네이버 지도 이미지를 가져와 경로 그림을 만들고 있습니다.");
@@ -171,10 +207,13 @@ async function makeRouteMap() {
       const data = await response.json();
       throw new Error(data.error || "지도 이미지를 만들 수 없습니다.");
     }
-    const bitmap = await createImageBitmap(await response.blob());
+
+    const blob = await response.blob();
+    const bitmap = await createImageBitmap(blob);
     const ctx = routeCanvas.getContext("2d");
     ctx.clearRect(0, 0, routeCanvas.width, routeCanvas.height);
     ctx.drawImage(bitmap, 0, 0, routeCanvas.width, routeCanvas.height);
+
     const bounds = {
       minLng: Math.min(state.dep.lng, state.arr.lng),
       maxLng: Math.max(state.dep.lng, state.arr.lng),
@@ -183,6 +222,7 @@ async function makeRouteMap() {
     };
     const start = projectPoint(state.dep, bounds, routeCanvas.width, routeCanvas.height);
     const end = projectPoint(state.arr, bounds, routeCanvas.width, routeCanvas.height);
+
     ctx.save();
     ctx.strokeStyle = "#03c75a";
     ctx.lineWidth = 8;
@@ -194,6 +234,7 @@ async function makeRouteMap() {
     ctx.lineTo(end.x, end.y);
     ctx.stroke();
     ctx.restore();
+
     ctx.fillStyle = "rgba(255,255,255,0.92)";
     ctx.fillRect(24, 24, 420, 84);
     ctx.fillStyle = "#111827";
@@ -202,6 +243,7 @@ async function makeRouteMap() {
     ctx.font = "16px Malgun Gothic, Arial";
     ctx.fillStyle = "#4b5563";
     ctx.fillText("네이버 지도 기반 경로 이미지", 44, 90);
+
     routeCanvas.classList.add("ready");
     setStatus("경로 그림이 만들어졌습니다. 그림을 클릭하면 PNG로 다운로드됩니다.");
   } catch (error) {
@@ -224,7 +266,12 @@ const searchDepartures = debounce(async () => {
   state.dep = null;
   state.arr = null;
   arrInput.value = "";
-  if (keyword.length < 2) return depList.classList.remove("open");
+
+  if (keyword.length < 2) {
+    depList.classList.remove("open");
+    return;
+  }
+
   try {
     setStatus("출발지 터미널을 찾고 있습니다.");
     const data = await apiGet(`/api/terminals?q=${encodeURIComponent(keyword)}`);
@@ -240,18 +287,33 @@ const searchDepartures = debounce(async () => {
 const searchArrivals = debounce(async () => {
   const keyword = arrInput.value.trim();
   state.arr = null;
-  if (!state.dep || keyword.length < 1) return arrList.classList.remove("open");
+
+  if (!state.dep || keyword.length < 1) {
+    arrList.classList.remove("open");
+    return;
+  }
+
   try {
     setStatus("도착지 터미널을 찾고 있습니다.");
-    const data = await apiGet(`/api/destinations?depTerId=${encodeURIComponent(state.dep.id)}&q=${encodeURIComponent(keyword)}`);
-    renderSuggestions(arrList, data.destinations, (item) => selectTerminal("arr", item));
+    const data = await apiGet(
+      `/api/destinations?depTerId=${encodeURIComponent(state.dep.id)}&q=${encodeURIComponent(keyword)}`
+    );
+    renderSuggestions(arrList, data.destinations, (item) => {
+      selectTerminal("arr", item);
+    });
   } catch (error) {
     setStatus(error.message, true);
   }
 });
 
 function makePlainText(result) {
-  const rows = result.trips.map((trip, index) => `${index + 1}. ${trip.departTime} / ${trip.departTerminal} → ${trip.arriveTerminal} / ${trip.company} / 일반 ${money(trip.adultFare)} / 중고생 ${money(trip.studentFare)} / 아동 ${money(trip.childFare)} / 약 ${trip.duration}`).join("\n");
+  const rows = result.trips
+    .map(
+      (trip, index) =>
+        `${index + 1}. ${trip.departTime} / ${trip.departTerminal} → ${trip.arriveTerminal} / ${trip.company} / 일반 ${money(trip.adultFare)} / 중고생 ${money(trip.studentFare)} / 아동 ${money(trip.childFare)} / 약 ${trip.duration}`
+    )
+    .join("\n");
+
   return `${result.depName}에서 ${result.arrName} 가는 버스 시간표\n${prettyDate(result.date)} 기준\n\n${rows || "조회된 배차가 없습니다."}\n\n자료: 버스타고`;
 }
 
@@ -263,9 +325,27 @@ function makePostHtml() {
   return blogPost.innerHTML.trim();
 }
 
+function routeStops(result) {
+  const routes = result.trips.map((trip) => trip.route).filter(Boolean);
+
+  for (const route of routes) {
+    const parts = String(route)
+      .split(/(?:->|→|>|,|\/|\||\s+-\s+|\s{2,})/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const stops = parts.filter((name) => name !== result.depName && name !== result.arrName);
+
+    if (stops.length) return [...new Set(stops)].join(", ");
+  }
+
+  return "";
+}
+
 function renderBlogPost(result) {
-  const firstTrip = result.trips[0];
-  const rows = result.trips.map((trip) => `
+  const stops = routeStops(result);
+  const rows = result.trips
+    .map(
+      (trip) => `
         <tr>
           <td>${trip.departTime}</td>
           <td>${trip.departTerminal}</td>
@@ -275,31 +355,88 @@ function renderBlogPost(result) {
           <td>${money(trip.studentFare)}</td>
           <td>${money(trip.childFare)}</td>
           <td>${trip.duration}</td>
-        </tr>`).join("");
+        </tr>`
+    )
+    .join("");
+
   blogPost.innerHTML = `
     <p class="post-kicker">대중교통 타고 여행하기</p>
     <h2 class="post-title">${result.depName}에서 ${result.arrName} 가는 버스 시간표</h2>
     <p class="post-meta">${prettyDate(result.date)} 버스타고 조회 기준</p>
-    <div class="summary-box">
-      <div class="summary-item"><strong>노선</strong><span>${result.depName} → ${result.arrName}</span></div>
-      <div class="summary-item"><strong>첫차</strong><span>${firstTrip ? firstTrip.departTime : "-"}</span></div>
-      <div class="summary-item"><strong>배차</strong><span>${result.trips.length}건</span></div>
+
+    <div class="table-wrap">
+      <table class="route-info-table">
+        <tbody>
+          <tr>
+            <th>시간표 확인일</th>
+            <td>${plainDate(result.date)}</td>
+            <th>예매 사이트</th>
+            <td><a href="https://www.bustago.or.kr/newweb/kr/index.do" target="_blank" rel="noopener">버스타고</a></td>
+          </tr>
+          <tr>
+            <th>출발지</th>
+            <td>${result.depName}</td>
+            <th>도착지</th>
+            <td>${result.arrName}</td>
+          </tr>
+          <tr>
+            <th>주요 경유지</th>
+            <td colspan="3">${stops}</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
-    <div class="table-wrap"><table><thead><tr><th>출발시간</th><th>출발지</th><th>도착지</th><th>버스회사</th><th>일반요금</th><th>중고생요금</th><th>아동요금</th><th>예상소요시간</th></tr></thead><tbody>${rows || `<tr><td colspan="8">조회된 배차가 없습니다.</td></tr>`}</tbody></table></div>
-    <p class="note">요금과 소요시간은 버스타고 조회 시점 기준이며, 운행사 및 도로 사정에 따라 달라질 수 있습니다.</p>`;
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>출발시간</th>
+            <th>출발지</th>
+            <th>도착지</th>
+            <th>버스회사</th>
+            <th>일반요금</th>
+            <th>중고생요금</th>
+            <th>아동요금</th>
+            <th>예상소요시간</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || `<tr><td colspan="8">조회된 배차가 없습니다.</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+
+    <p class="note">요금과 소요시간은 버스타고 조회 시점 기준이며, 운행사 및 도로 사정에 따라 달라질 수 있습니다.</p>
+  `;
 }
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (!state.dep || !state.arr || !dateInput.value) return setStatus("출발지와 도착지를 목록에서 선택하고 날짜를 입력해 주세요.", true);
+
+  if (!state.dep || !state.arr || !dateInput.value) {
+    setStatus("출발지와 도착지를 목록에서 선택하고 날짜를 입력해 주세요.", true);
+    return;
+  }
+
   try {
     setStatus("버스타고에서 운행 정보를 조회하고 있습니다.");
     const date = dateInput.value.replaceAll("-", "");
-    const params = new URLSearchParams({ depTerId: state.dep.id, arrTerId: state.arr.id, depName: state.dep.name, arrName: state.arr.name, date });
+    const params = new URLSearchParams({
+      depTerId: state.dep.id,
+      arrTerId: state.arr.id,
+      depName: state.dep.name,
+      arrName: state.arr.name,
+      date
+    });
     const result = await apiGet(`/api/search?${params.toString()}`);
     state.lastResult = result;
     renderBlogPost(result);
-    [copyTextBtn, copyHtmlBtn, openNaverBtn, printBtn, publishNaverBtn].forEach((button) => { button.disabled = false; });
+    copyTextBtn.disabled = false;
+    copyHtmlBtn.disabled = false;
+    openNaverBtn.disabled = false;
+    printBtn.disabled = false;
+    publishNaverBtn.disabled = false;
     setStatus(`${result.trips.length}건의 배차를 블로그용 표로 만들었습니다.`);
   } catch (error) {
     setStatus(error.message, true);
@@ -334,14 +471,21 @@ openNaverBtn.addEventListener("click", async () => {
 
 publishNaverBtn.addEventListener("click", async () => {
   if (!state.lastResult) return;
+
   const accessToken = naverTokenInput.value.trim();
   const categoryNo = naverCategoryInput.value.trim();
   localStorage.setItem("naverAccessToken", accessToken);
   localStorage.setItem("naverCategoryNo", categoryNo);
+
   try {
     publishNaverBtn.disabled = true;
     setStatus("네이버 블로그에 자동 게시를 시도하고 있습니다.");
-    const data = await apiPost("/api/naver/post", { accessToken, categoryNo, title: makeBlogTitle(state.lastResult), contents: makePostHtml() });
+    const data = await apiPost("/api/naver/post", {
+      accessToken,
+      categoryNo,
+      title: makeBlogTitle(state.lastResult),
+      contents: makePostHtml()
+    });
     const result = data.message && data.message.result ? data.message.result : data;
     const postUrl = result.postUrl || result.url || "";
     setStatus(postUrl ? `자동 게시가 완료되었습니다: ${postUrl}` : "자동 게시가 완료되었습니다.");
