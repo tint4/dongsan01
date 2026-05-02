@@ -163,6 +163,34 @@ button:disabled {
   background: #334155;
 }
 
+.naver-panel {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 160px 220px;
+  gap: 12px;
+  align-items: end;
+  margin: 0 0 14px;
+  padding: 18px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.naver-panel h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  letter-spacing: 0;
+}
+
+.naver-panel p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.naver-panel button {
+  background: #111827;
+}
+
 .blog-post {
   width: min(760px, 100%);
   margin: 0 auto;
@@ -286,6 +314,10 @@ td:nth-child(4) {
   .result-tools button {
     flex: 1 1 140px;
   }
+
+  .naver-panel {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media print {
@@ -294,7 +326,8 @@ td:nth-child(4) {
   }
 
   .search-panel,
-  .result-tools {
+  .result-tools,
+  .naver-panel {
     display: none;
   }
 

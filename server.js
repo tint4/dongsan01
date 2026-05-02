@@ -18,6 +18,28 @@ const MIME_TYPES = {
   ".svg": "image/svg+xml"
 };
 
+function readJsonBody(request) {
+  return new Promise((resolve, reject) => {
+    let raw = "";
+    request.on("data", (chunk) => {
+      raw += chunk;
+      if (raw.length > 1024 * 1024) {
+        request.destroy();
+        reject(new Error("요청 본문이 너무 큽니다."));
+      }
+    });
+    request.on("end", () => {
+      if (!raw) return resolve({});
+      try {
+        resolve(JSON.parse(raw));
+      } catch (error) {
+        reject(new Error("JSON 요청만 처리할 수 있습니다."));
+      }
+    });
+    request.on("error", reject);
+  });
+}
+
 function compactCookie(headers) {
   const raw = headers.get("set-cookie");
   if (!raw) return "";
@@ -200,6 +222,54 @@ async function handleSearch(req, res) {
   }
 }
 
+async function handleNaverPost(request, res) {
+  try {
+    const body = await readJsonBody(request);
+    const accessToken = String(body.accessToken || process.env.NAVER_ACCESS_TOKEN || "").trim();
+    const title = String(body.title || "").trim();
+    const contents = String(body.contents || "").trim();
+    const categoryNo = String(body.categoryNo || "").trim();
+
+    if (!accessToken) {
+      return sendJson(res, 400, { error: "네이버 접근 토큰이 필요합니다." });
+    }
+    if (!title || !contents) {
+      return sendJson(res, 400, { error: "제목과 본문이 필요합니다." });
+    }
+
+    const params = new URLSearchParams({ title, contents });
+    if (categoryNo) params.set("categoryNo", categoryNo);
+
+    const response = await fetch("https://openapi.naver.com/blog/writePost.json", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/x-www-form-urlencoded; charset=UTF-8"
+      },
+      body: params
+    });
+    const text = await response.text();
+
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (error) {
+      data = { raw: text };
+    }
+
+    if (!response.ok) {
+      return sendJson(res, response.status, {
+        error: "네이버 블로그 자동 게시가 실패했습니다. 토큰 권한 또는 API 제공 여부를 확인해 주세요.",
+        detail: data
+      });
+    }
+
+    sendJson(res, 200, data);
+  } catch (error) {
+    sendJson(res, 502, { error: error.message });
+  }
+}
+
 async function serveStatic(req, res) {
   const pathname = decodeURIComponent(req.pathname === "/" ? "/index.html" : req.pathname);
   const normalized = path.normalize(pathname).replace(/^(\.\.[/\\])+/, "");
@@ -228,6 +298,10 @@ const server = http.createServer(async (request, response) => {
     pathname: url.pathname,
     searchParams: url.searchParams
   };
+
+  if (url.pathname === "/api/naver/post" && request.method === "POST") {
+    return handleNaverPost(request, response);
+  }
 
   if (request.method !== "GET") {
     response.writeHead(405, { "content-type": "text/plain; charset=utf-8" });

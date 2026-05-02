@@ -14,9 +14,15 @@ const form = document.querySelector("#searchForm");
 const blogPost = document.querySelector("#blogPost");
 const copyTextBtn = document.querySelector("#copyTextBtn");
 const copyHtmlBtn = document.querySelector("#copyHtmlBtn");
+const openNaverBtn = document.querySelector("#openNaverBtn");
 const printBtn = document.querySelector("#printBtn");
+const naverTokenInput = document.querySelector("#naverTokenInput");
+const naverCategoryInput = document.querySelector("#naverCategoryInput");
+const publishNaverBtn = document.querySelector("#publishNaverBtn");
 
 dateInput.valueAsDate = new Date();
+naverTokenInput.value = localStorage.getItem("naverAccessToken") || "";
+naverCategoryInput.value = localStorage.getItem("naverCategoryNo") || "";
 
 function setStatus(message, isError = false) {
   statusEl.textContent = message;
@@ -43,6 +49,17 @@ async function apiGet(path) {
   const response = await fetch(path);
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || "조회 중 오류가 발생했습니다.");
+  return data;
+}
+
+async function apiPost(path, payload) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "요청 중 오류가 발생했습니다.");
   return data;
 }
 
@@ -144,6 +161,14 @@ function makePlainText(result) {
   return `${result.depName}에서 ${result.arrName} 가는 버스 시간표\n${prettyDate(result.date)} 기준\n\n${rows || "조회된 배차가 없습니다."}\n\n자료: 버스타고`;
 }
 
+function makeBlogTitle(result) {
+  return `${result.depName}에서 ${result.arrName} 가는 버스 시간표`;
+}
+
+function makePostHtml() {
+  return blogPost.innerHTML.trim();
+}
+
 function renderBlogPost(result) {
   const firstTrip = result.trips[0];
   const rows = result.trips
@@ -220,7 +245,9 @@ form.addEventListener("submit", async (event) => {
     renderBlogPost(result);
     copyTextBtn.disabled = false;
     copyHtmlBtn.disabled = false;
+    openNaverBtn.disabled = false;
     printBtn.disabled = false;
+    publishNaverBtn.disabled = false;
     setStatus(`${result.trips.length}건의 배차를 블로그용 표로 만들었습니다.`);
   } catch (error) {
     setStatus(error.message, true);
@@ -240,8 +267,44 @@ copyTextBtn.addEventListener("click", async () => {
 });
 
 copyHtmlBtn.addEventListener("click", async () => {
-  await navigator.clipboard.writeText(blogPost.innerHTML.trim());
+  await navigator.clipboard.writeText(makePostHtml());
   setStatus("블로그용 HTML을 복사했습니다.");
+});
+
+openNaverBtn.addEventListener("click", async () => {
+  if (!state.lastResult) return;
+  await navigator.clipboard.writeText(makePostHtml());
+  window.open("https://blog.naver.com/PostWriteForm.naver?blogId=tint4", "_blank", "noopener");
+  setStatus("본문 HTML을 복사하고 네이버 블로그 글쓰기 창을 열었습니다.");
+});
+
+publishNaverBtn.addEventListener("click", async () => {
+  if (!state.lastResult) return;
+
+  const accessToken = naverTokenInput.value.trim();
+  const categoryNo = naverCategoryInput.value.trim();
+  localStorage.setItem("naverAccessToken", accessToken);
+  localStorage.setItem("naverCategoryNo", categoryNo);
+
+  try {
+    publishNaverBtn.disabled = true;
+    setStatus("네이버 블로그에 자동 게시를 시도하고 있습니다.");
+    const data = await apiPost("/api/naver/post", {
+      accessToken,
+      categoryNo,
+      title: makeBlogTitle(state.lastResult),
+      contents: makePostHtml()
+    });
+    const result = data.message && data.message.result ? data.message.result : data;
+    const postUrl = result.postUrl || result.url || "";
+    setStatus(postUrl ? `자동 게시가 완료되었습니다: ${postUrl}` : "자동 게시가 완료되었습니다.");
+    if (postUrl) window.open(postUrl, "_blank", "noopener");
+  } catch (error) {
+    setStatus(`${error.message} 글쓰기 창으로 붙여넣기할 수 있게 HTML은 복사해 둘게요.`, true);
+    await navigator.clipboard.writeText(makePostHtml());
+  } finally {
+    publishNaverBtn.disabled = false;
+  }
 });
 
 printBtn.addEventListener("click", () => window.print());

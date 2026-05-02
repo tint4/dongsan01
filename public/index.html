@@ -40,7 +40,24 @@
       <section class="result-tools">
         <button id="copyTextBtn" type="button" disabled>블로그 글 복사</button>
         <button id="copyHtmlBtn" type="button" disabled>HTML 복사</button>
+        <button id="openNaverBtn" type="button" disabled>네이버 글쓰기 열기</button>
         <button id="printBtn" type="button" disabled>인쇄</button>
+      </section>
+
+      <section class="naver-panel" aria-label="네이버 블로그 자동 게시">
+        <div>
+          <h2>네이버 자동 게시</h2>
+          <p>네이버 개발자 접근 토큰이 있으면 생성된 글을 블로그에 바로 등록할 수 있습니다.</p>
+        </div>
+        <label>
+          <span>Access Token</span>
+          <input id="naverTokenInput" type="password" autocomplete="off" placeholder="Bearer 없이 토큰만 입력" />
+        </label>
+        <label>
+          <span>카테고리 번호</span>
+          <input id="naverCategoryInput" type="text" inputmode="numeric" placeholder="선택 사항" />
+        </label>
+        <button id="publishNaverBtn" type="button" disabled>네이버 블로그에 자동 게시</button>
       </section>
 
       <article id="blogPost" class="blog-post">
