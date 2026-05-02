@@ -9,6 +9,8 @@ const arrInput = document.querySelector("#arrInput");
 const dateInput = document.querySelector("#dateInput");
 const depList = document.querySelector("#depList");
 const arrList = document.querySelector("#arrList");
+const depQuick = document.querySelector("#depQuick");
+const arrQuick = document.querySelector("#arrQuick");
 const statusEl = document.querySelector("#status");
 const form = document.querySelector("#searchForm");
 const blogPost = document.querySelector("#blogPost");
@@ -23,6 +25,14 @@ const publishNaverBtn = document.querySelector("#publishNaverBtn");
 dateInput.valueAsDate = new Date();
 naverTokenInput.value = localStorage.getItem("naverAccessToken") || "";
 naverCategoryInput.value = localStorage.getItem("naverCategoryNo") || "";
+
+const MAIN_TERMINALS = [
+  { id: "0001", name: "동서울", area: "서울" },
+  { id: "0004", name: "서울남부", area: "서울" },
+  { id: "0002", name: "상봉", area: "서울" },
+  { id: "0010", name: "김포공항", area: "서울" },
+  { id: "0009", name: "잠실역", area: "서울" }
+];
 
 function setStatus(message, isError = false) {
   statusEl.textContent = message;
@@ -90,6 +100,45 @@ function renderSuggestions(target, items, onPick) {
   target.classList.add("open");
 }
 
+function markQuickSelection(kind, terminal) {
+  const container = kind === "dep" ? depQuick : arrQuick;
+  container.querySelectorAll(".quick-terminal").forEach((button) => {
+    button.classList.toggle("selected", button.dataset.id === terminal.id);
+  });
+}
+
+function selectTerminal(kind, terminal) {
+  if (kind === "dep") {
+    state.dep = terminal;
+    depInput.value = terminal.name;
+    arrInput.disabled = false;
+    arrInput.placeholder = "예: 강릉, 부산, 전주";
+    depList.classList.remove("open");
+    markQuickSelection("dep", terminal);
+    setStatus(`${terminal.name} 출발지가 선택되었습니다.`);
+    return;
+  }
+
+  state.arr = terminal;
+  arrInput.value = terminal.name;
+  arrList.classList.remove("open");
+  markQuickSelection("arr", terminal);
+  setStatus(`${terminal.name} 도착지가 선택되었습니다.`);
+}
+
+function renderQuickTerminals(container, kind) {
+  container.innerHTML = "";
+  MAIN_TERMINALS.forEach((terminal) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "quick-terminal";
+    button.dataset.id = terminal.id;
+    button.textContent = terminal.name;
+    button.addEventListener("click", () => selectTerminal(kind, terminal));
+    container.appendChild(button);
+  });
+}
+
 function debounce(callback, wait = 250) {
   let timer;
   return (...args) => {
@@ -103,7 +152,6 @@ const searchDepartures = debounce(async () => {
   state.dep = null;
   state.arr = null;
   arrInput.value = "";
-  arrInput.disabled = true;
 
   if (keyword.length < 2) {
     depList.classList.remove("open");
@@ -114,12 +162,8 @@ const searchDepartures = debounce(async () => {
     setStatus("출발지 터미널을 찾고 있습니다.");
     const data = await apiGet(`/api/terminals?q=${encodeURIComponent(keyword)}`);
     renderSuggestions(depList, data.terminals, (item) => {
-      state.dep = item;
-      depInput.value = item.name;
-      arrInput.disabled = false;
-      arrInput.placeholder = "예: 강릉, 부산, 전주";
+      selectTerminal("dep", item);
       arrInput.focus();
-      setStatus(`${item.name} 출발 노선을 선택할 수 있습니다.`);
     });
   } catch (error) {
     setStatus(error.message, true);
@@ -141,9 +185,7 @@ const searchArrivals = debounce(async () => {
       `/api/destinations?depTerId=${encodeURIComponent(state.dep.id)}&q=${encodeURIComponent(keyword)}`
     );
     renderSuggestions(arrList, data.destinations, (item) => {
-      state.arr = item;
-      arrInput.value = item.name;
-      setStatus(`${state.dep.name} → ${item.name} 노선이 선택되었습니다.`);
+      selectTerminal("arr", item);
     });
   } catch (error) {
     setStatus(error.message, true);
@@ -256,6 +298,8 @@ form.addEventListener("submit", async (event) => {
 
 depInput.addEventListener("input", searchDepartures);
 arrInput.addEventListener("input", searchArrivals);
+renderQuickTerminals(depQuick, "dep");
+renderQuickTerminals(arrQuick, "arr");
 document.addEventListener("click", (event) => {
   if (!event.target.closest(".search-form")) closeSuggestions();
 });

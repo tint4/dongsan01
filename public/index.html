@@ -15,17 +15,23 @@
         </div>
 
         <form id="searchForm" class="search-form">
-          <label>
-            <span>출발지</span>
-            <input id="depInput" type="text" autocomplete="off" placeholder="예: 동서울, 서울남부" required />
-          </label>
-          <div id="depList" class="suggestions"></div>
+          <div class="terminal-field">
+            <label>
+              <span>출발지</span>
+              <input id="depInput" type="text" autocomplete="off" placeholder="예: 동서울, 서울남부" required />
+            </label>
+            <div id="depList" class="suggestions"></div>
+            <div id="depQuick" class="quick-terminals" aria-label="주요 출발 터미널"></div>
+          </div>
 
-          <label>
-            <span>도착지</span>
-            <input id="arrInput" type="text" autocomplete="off" placeholder="출발지를 먼저 선택하세요" required disabled />
-          </label>
-          <div id="arrList" class="suggestions"></div>
+          <div class="terminal-field">
+            <label>
+              <span>도착지</span>
+              <input id="arrInput" type="text" autocomplete="off" placeholder="터미널명을 입력하거나 아래에서 선택" required />
+            </label>
+            <div id="arrList" class="suggestions"></div>
+            <div id="arrQuick" class="quick-terminals" aria-label="주요 도착 터미널"></div>
+          </div>
 
           <label>
             <span>가는 날짜</span>
