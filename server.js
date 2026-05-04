@@ -1564,23 +1564,32 @@ async function handleIncheonBusSearch(req, res) {
 }
 
 async function ulsanPost(params) {
-  const response = await fetch(`${ULSAN_BUS_ORIGIN}/mpng/getList.json`, {
-    method: "POST",
-    headers: {
-      "user-agent": USER_AGENT,
-      "content-type": "application/json;charset=UTF-8",
-      "x-requested-with": "XMLHttpRequest",
-      referer: `${ULSAN_BUS_ORIGIN}/route/timetable.do`
-    },
-    body: JSON.stringify(params)
-  });
-  const text = await response.text();
-  if (!response.ok) throw new Error(`울산버스 응답 오류 ${response.status}: ${text.slice(0, 200)}`);
-  try {
-    return JSON.parse(text);
-  } catch (error) {
-    throw new Error(`울산버스 응답을 해석하지 못했습니다: ${text.slice(0, 200)}`);
+  let lastText = "";
+  let lastStatus = 0;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const response = await fetch(`${ULSAN_BUS_ORIGIN}/mpng/getList.json`, {
+      method: "POST",
+      headers: {
+        "user-agent": USER_AGENT,
+        "content-type": "application/json;charset=UTF-8",
+        "x-requested-with": "XMLHttpRequest",
+        referer: `${ULSAN_BUS_ORIGIN}/route/timetable.do`
+      },
+      body: JSON.stringify(params)
+    });
+    const text = await response.text();
+    lastText = text;
+    lastStatus = response.status;
+    if (response.ok) {
+      try {
+        return JSON.parse(text);
+      } catch (error) {
+        throw new Error(`울산버스 응답을 해석하지 못했습니다: ${text.slice(0, 200)}`);
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
   }
+  throw new Error(`울산버스 응답 오류 ${lastStatus}: ${lastText.slice(0, 200)}`);
 }
 
 function cleanUlsanBusNo(name) {
