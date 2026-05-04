@@ -1,4 +1,4 @@
-const form = document.querySelector("#jejuBusForm");
+const form = document.querySelector("#ulsanBusForm");
 const busNoInput = document.querySelector("#busNoInput");
 const statusEl = document.querySelector("#status");
 const openNaverBtn = document.querySelector("#openNaverBtn");
@@ -59,8 +59,8 @@ function renderBlogPost(result) {
 
   blogPost.innerHTML = `
     <p class="post-kicker">대중교통과 여행하기</p>
-    <h2 class="post-title">제주버스 ${result.busNo}번 시간표</h2>
-    <p class="post-meta">${searchedDate} 제주버스 조회 기준</p>
+    <h2 class="post-title">울산버스 ${result.busNo}번 시간표</h2>
+    <p class="post-meta">${searchedDate} 울산버스 조회 기준</p>
 
     <div class="table-wrap">
       <table class="route-info-table buspia-meta-table">
@@ -75,7 +75,7 @@ function renderBlogPost(result) {
             <th>시간표 확인일</th>
             <td>${searchedDate}</td>
             <th>버스회사</th>
-            <td>${result.company}</td>
+            <td>${result.company || "-"}</td>
           </tr>
           <tr>
             <th>기점</th>
@@ -88,6 +88,18 @@ function renderBlogPost(result) {
             <td>${result.busKind || "-"}</td>
             <th>배차간격</th>
             <td>${result.interval || "-"}</td>
+          </tr>
+          <tr>
+            <th>첫차시간</th>
+            <td>${result.firstTime || "-"}</td>
+            <th>막차시간</th>
+            <td>${result.lastTime || "-"}</td>
+          </tr>
+          <tr>
+            <th>실시간 위치</th>
+            <td><a href="${result.realTimeUrl}" target="_blank" rel="noopener">확인하기</a></td>
+            <th>비고</th>
+            <td></td>
           </tr>
           <tr>
             <th>주요 정류장</th>
@@ -110,10 +122,10 @@ form.addEventListener("submit", async (event) => {
   if (!busNo) return;
 
   try {
-    setStatus(`${busNo}번 제주버스 시간표를 조회하고 있습니다.`);
-    const result = await apiGet(`/api/jeju-bus/search?busNo=${encodeURIComponent(busNo)}`);
+    setStatus(`${busNo}번 울산버스 시간표를 조회하고 있습니다.`);
+    const result = await apiGet(`/api/ulsan-bus/search?busNo=${encodeURIComponent(busNo)}`);
     renderBlogPost(result);
-    setStatus(`${result.busNo}번 제주버스 시간표를 만들었습니다.`);
+    setStatus(`${result.busNo}번 울산버스 시간표를 만들었습니다.`);
   } catch (error) {
     setStatus(error.message, true);
   }

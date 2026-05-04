@@ -1,4 +1,4 @@
-const form = document.querySelector("#jejuBusForm");
+const form = document.querySelector("#busanBusForm");
 const busNoInput = document.querySelector("#busNoInput");
 const statusEl = document.querySelector("#status");
 const openNaverBtn = document.querySelector("#openNaverBtn");
@@ -59,8 +59,8 @@ function renderBlogPost(result) {
 
   blogPost.innerHTML = `
     <p class="post-kicker">대중교통과 여행하기</p>
-    <h2 class="post-title">제주버스 ${result.busNo}번 시간표</h2>
-    <p class="post-meta">${searchedDate} 제주버스 조회 기준</p>
+    <h2 class="post-title">부산버스 ${result.busNo}번 정류소별 첫차 막차</h2>
+    <p class="post-meta">${searchedDate} 부산버스 조회 기준</p>
 
     <div class="table-wrap">
       <table class="route-info-table buspia-meta-table">
@@ -98,7 +98,7 @@ function renderBlogPost(result) {
     </div>
 
     <div class="jeju-tabs">${tabs}</div>
-    ${panels || '<p class="empty">조회된 시간표가 없습니다.</p>'}
+    ${panels || '<p class="empty">조회된 첫차/막차 정보가 없습니다.</p>'}
   `;
   openNaverBtn.disabled = false;
   bindTabs();
@@ -110,10 +110,10 @@ form.addEventListener("submit", async (event) => {
   if (!busNo) return;
 
   try {
-    setStatus(`${busNo}번 제주버스 시간표를 조회하고 있습니다.`);
-    const result = await apiGet(`/api/jeju-bus/search?busNo=${encodeURIComponent(busNo)}`);
+    setStatus(`${busNo}번 부산버스 정보를 조회하고 있습니다.`);
+    const result = await apiGet(`/api/busan-bus/search?busNo=${encodeURIComponent(busNo)}`);
     renderBlogPost(result);
-    setStatus(`${result.busNo}번 제주버스 시간표를 만들었습니다.`);
+    setStatus(`${result.busNo}번 부산버스 첫차/막차 표를 만들었습니다.`);
   } catch (error) {
     setStatus(error.message, true);
   }

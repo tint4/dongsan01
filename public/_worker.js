@@ -4,6 +4,9 @@ const KOBUS_ORIGIN = "https://www.kobus.co.kr";
 const BUSPIA_ORIGIN = "https://www.buspia.co.kr";
 const NEWSMILE_ORIGIN = "http://www.newsmilebus.com";
 const JEJU_BUS_ORIGIN = "https://bus.jeju.go.kr";
+const BUSAN_BUS_ORIGIN = "https://bus.busan.go.kr";
+const INCHEON_BUS_ORIGIN = "https://bus.incheon.go.kr";
+const ULSAN_BUS_ORIGIN = "https://its.ulsan.kr";
 const AIRPORT_LIMOUSINE_ORIGIN = "https://airportlimousine.co.kr";
 const SEOUL_AIRBUS_ORIGIN = "https://www.seoulairbus.com";
 const CALT_ORIGIN = "https://www.calt.co.kr";
@@ -1193,6 +1196,329 @@ async function handleJejuBusSearch(req, res) {
   }
 }
 
+async function fetchBusanMobileHtml(pathname, params = null) {
+  const response = await fetch(`${BUSAN_BUS_ORIGIN}${pathname}`, {
+    method: params ? "POST" : "GET",
+    headers: {
+      "user-agent": USER_AGENT,
+      "content-type": "application/x-www-form-urlencoded",
+      referer: `${BUSAN_BUS_ORIGIN}/busanBIMS/mobile/webApp/page/busInfo/busNumbList.asp`
+    },
+    body: params ? new URLSearchParams(params) : undefined
+  });
+  const html = new TextDecoder("euc-kr").decode(await response.arrayBuffer());
+  if (!response.ok) throw new Error(`부산버스 응답 오류 ${response.status}: ${html.slice(0, 200)}`);
+  return html;
+}
+
+function busanBusKind(className) {
+  if (/sred/.test(className)) return "심야버스";
+  if (/red/.test(className)) return "급행버스";
+  if (/green/.test(className)) return "마을버스";
+  return "일반버스";
+}
+
+function parseBusanRoutes(html) {
+  return [...html.matchAll(/<li class=['"]bus_type\s+([^'"]+)['"][\s\S]*?<a href="javascript:find_line_info\((\d+),'([^']+)'\);"[\s\S]*?<p class="bus_name">([\s\S]*?)<\/p>[\s\S]*?<span class="bus_route">([\s\S]*?)<\/span>/gi)]
+    .map((match) => ({
+      className: match[1],
+      lineId: match[2],
+      lineName: htmlText(match[3]),
+      busNo: htmlText(match[4]).replace(/번$/, ""),
+      routeText: htmlText(match[5]),
+      busKind: busanBusKind(match[1])
+    }));
+}
+
+function firstTextAfter(label, html) {
+  const match = html.match(new RegExp(`${label}[\\s\\S]*?<span[^>]*>([\\s\\S]*?)<\\/span>`, "i"));
+  return htmlText((match || [])[1] || "");
+}
+
+function parseBusanStops(listHtml) {
+  return [...listHtml.matchAll(/<li[^>]*>[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>[\s\S]*?<\/li>/gi)]
+    .map((match) => {
+      const item = match[1].replace(/<div class="real_time"[\s\S]*?<\/div>/gi, "");
+      const stationId = ((item.match(/search_stationinfo\('([^']+)'\)/) || [])[1] || "").trim();
+      const timeText = htmlText((item.match(/<span class="cl_gray">([\s\S]*?)<\/span>/i) || [])[1] || "");
+      const timeMatch = timeText.match(/(\d{2,5})?\s*\(?(\d{1,2}:\d{2})\s*~\s*(\d{1,2}:\d{2})\)?/);
+      const stopName = htmlText(item.replace(/<span class="cl_gray">[\s\S]*?<\/span>/i, ""));
+      return {
+        stationId,
+        stopName,
+        stationNo: timeMatch?.[1] || "",
+        firstTime: timeMatch?.[2] || "",
+        lastTime: timeMatch?.[3] || ""
+      };
+    })
+    .filter((stop) => stop.stopName);
+}
+
+function parseBusanRouteDetail(html, route) {
+  const routeText = htmlText((html.match(/<p class="bus_route cl_black">([\s\S]*?)<\/p>/i) || [])[1] || route.routeText);
+  const [origin = "", destination = ""] = routeText.split(/\s*-\s*/).map((part) => part.trim());
+  const firstTime = firstTextAfter("첫차", html);
+  const lastTime = firstTextAfter("막차", html);
+  const intervalBlock = htmlText((html.match(/배차간격([\s\S]*?)<\/p>/i) || [])[1] || "");
+  const company = htmlText((html.match(/<b>운수회사<\/b>[\s\S]*?<span class="cl_gray">([\s\S]*?)<\/span>/i) || [])[1] || "");
+  const tabLabels = [...html.matchAll(/<a href="#" class="tab_(?:start|arrive)[^"]*">([\s\S]*?)<\/a>/gi)].map((match) => htmlText(match[1]));
+  const listMatches = [...html.matchAll(/<ul class="route_list\s+(con_(?:start|arrive))"[^>]*>([\s\S]*?)<\/ul>/gi)];
+  const schedules = listMatches.map((match, index) => {
+    const stops = parseBusanStops(match[2]);
+    return {
+      title: tabLabels[index] || (index === 0 ? `${destination || route.busNo} 방향` : `${origin || route.busNo} 방향`),
+      headers: ["정류소", "정류소번호", "첫차", "막차"],
+      rows: stops.map((stop) => [stop.stopName, stop.stationNo || stop.stationId, stop.firstTime || "-", stop.lastTime || "-"]),
+      allStops: stops.map((stop) => stop.stopName)
+    };
+  }).filter((schedule) => schedule.rows.length);
+
+  return {
+    source: "부산버스",
+    officialUrl: `${BUSAN_BUS_ORIGIN}/busanBIMS/mobile/webApp/page/busInfo/busNumbList.asp`,
+    searchedAt: new Date().toISOString(),
+    busNo: route.busNo,
+    company: company || "부산버스",
+    origin,
+    destination,
+    busKind: route.busKind,
+    interval: intervalBlock || `${firstTime || "-"} ~ ${lastTime || "-"}`,
+    majorStops: schedules[0]?.allStops.slice(0, 10) || [],
+    schedules
+  };
+}
+
+async function handleBusanBusSearch(req, res) {
+  try {
+    const busNo = String(req.searchParams.get("busNo") || "").trim();
+    if (!busNo) return sendJson(res, 400, { error: "버스번호가 필요합니다." });
+    const listHtml = await fetchBusanMobileHtml("/busanBIMS/mobile/webApp/page/busInfo/busNumbList.asp", { keyword: busNo });
+    const routes = parseBusanRoutes(listHtml);
+    const normalized = busNo.replace(/\s+/g, "");
+    const route = routes.find((item) => item.busNo.replace(/\s+/g, "") === normalized) || routes[0];
+    if (!route) return sendJson(res, 404, { error: `${busNo}번 부산버스 노선을 찾지 못했습니다.` });
+    const detailHtml = await fetchBusanMobileHtml("/busanBIMS/mobile/webApp/page/busInfo/busNumbResult.asp", {
+      line_id: route.lineId,
+      line_name: route.lineName
+    });
+    sendJson(res, 200, parseBusanRouteDetail(detailHtml, route));
+  } catch (error) {
+    sendJson(res, 502, { error: error.message });
+  }
+}
+
+async function incheonPost(pathname, params) {
+  const text = await postForm(INCHEON_BUS_ORIGIN, pathname, params, "/bis/search1.view");
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`인천버스 응답을 해석하지 못했습니다: ${text.slice(0, 200)}`);
+  }
+}
+
+function incheonBusKind(routeType) {
+  switch (String(routeType || "")) {
+    case "1":
+    case "9":
+      return "지선버스";
+    case "2":
+      return "간선버스";
+    case "3":
+    case "10":
+      return "좌석버스";
+    case "4":
+      return "광역버스";
+    case "5":
+      return "공항버스";
+    case "6":
+      return "마을버스";
+    case "8":
+      return "급행버스";
+    default:
+      return "일반버스";
+  }
+}
+
+function formatIncheonCompany(route) {
+  const names = String(route.compnm || "").split(",").map((item) => item.trim()).filter(Boolean);
+  const tels = String(route.telephone || "").split(",").map((item) => item.trim());
+  if (!names.length) return "인천버스";
+  return names.map((name, index) => (tels[index] ? `${name}(${tels[index]})` : name)).join(" / ");
+}
+
+function formatIncheonInterval(route) {
+  const day = route.day_busdispt ? `평일 ${route.day_busdispt}분` : "";
+  const sat = route.satday_busdispt ? `토요일 ${route.satday_busdispt}분` : "";
+  const holi = route.holiyday_busdispt ? `공휴일 ${route.holiyday_busdispt}분` : "";
+  return [day, sat, holi].filter(Boolean).join(" / ") || "-";
+}
+
+async function handleIncheonBusSearch(req, res) {
+  try {
+    const busNo = String(req.searchParams.get("busNo") || "").trim();
+    if (!busNo) return sendJson(res, 400, { error: "버스번호가 필요합니다." });
+    const searchData = await incheonPost("/inq/selectRouteSearchList.do", { searchWord: busNo, routeid: "" });
+    const routes = searchData.routeList || [];
+    const normalized = busNo.replace(/\s+/g, "");
+    const route = routes.find((item) => String(item.routeno || "").replace(/\s+/g, "") === normalized) || routes[0];
+    if (!route) return sendJson(res, 404, { error: `${busNo}번 인천버스 노선을 찾지 못했습니다.` });
+    const detail = await incheonPost("/inq/selectRouteDetailInfo.do", { routeid: route.routeid, isPc: "true" });
+    const stops = (detail.viaStopList || []).map((stop) => stop.nodenm).filter(Boolean);
+    sendJson(res, 200, {
+      source: "인천버스",
+      officialUrl: `${INCHEON_BUS_ORIGIN}/bis/main.view`,
+      realTimeUrl: `https://map.naver.com/p/search/${encodeURIComponent(`인천 ${route.routeno || busNo}번 버스`)}`,
+      searchedAt: new Date().toISOString(),
+      busNo: route.routeno || busNo,
+      company: formatIncheonCompany(route),
+      origin: route.originbstopkr || "",
+      destination: route.destbstopkr || "",
+      busKind: incheonBusKind(route.routetpcd),
+      interval: formatIncheonInterval(route),
+      firstTime: route.first_tm || "-",
+      lastTime: route.last_tm || "-",
+      majorStops: [...new Set(stops)].slice(0, 10)
+    });
+  } catch (error) {
+    sendJson(res, 502, { error: error.message });
+  }
+}
+
+async function ulsanPost(params) {
+  const response = await fetch(`${ULSAN_BUS_ORIGIN}/mpng/getList.json`, {
+    method: "POST",
+    headers: {
+      "user-agent": USER_AGENT,
+      "content-type": "application/json;charset=UTF-8",
+      "x-requested-with": "XMLHttpRequest",
+      referer: `${ULSAN_BUS_ORIGIN}/route/timetable.do`
+    },
+    body: JSON.stringify(params)
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`울산버스 응답 오류 ${response.status}: ${text.slice(0, 200)}`);
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`울산버스 응답을 해석하지 못했습니다: ${text.slice(0, 200)}`);
+  }
+}
+
+function cleanUlsanBusNo(name) {
+  return String(name || "").split("(")[0].trim();
+}
+
+function parseUlsanRouteName(name) {
+  const match = String(name || "").match(/\(([\s\S]*?)\)$/);
+  const parts = (match?.[1] || "").split(/\s*~\s*/).map((part) => part.replace(/\(.+?\)/g, "").trim()).filter(Boolean);
+  return { origin: parts[0] || "", destination: parts[parts.length - 1] || "" };
+}
+
+function formatUlsanTime(value) {
+  const clean = String(value || "").trim();
+  if (/^\d{4}/.test(clean)) return `${clean.slice(0, 2)}:${clean.slice(2, 4)}${clean.slice(4)}`;
+  return clean || "-";
+}
+
+function summarizeUlsanInterval(times) {
+  const minutes = times
+    .map((time) => String(time || "").match(/^(\d{2}):(\d{2})/))
+    .filter(Boolean)
+    .map((match) => Number(match[1]) * 60 + Number(match[2]))
+    .sort((a, b) => a - b);
+  const gaps = minutes.slice(1).map((value, index) => value - minutes[index]).filter((gap) => gap > 0);
+  if (!gaps.length) return "-";
+  const min = Math.min(...gaps);
+  const max = Math.max(...gaps);
+  return min === max ? `${min}분` : `${min}~${max}분`;
+}
+
+function buildUlsanRows(fiducialTitle, fiducialTimes, terminalTitle, terminalTimes) {
+  const max = Math.max(fiducialTimes.length, terminalTimes.length);
+  return Array.from({ length: max }, (_, index) => [String(index + 1), fiducialTimes[index] || "", terminalTimes[index] || ""]);
+}
+
+async function fetchUlsanSchedule(option, label, dywkVal) {
+  const parts = String(option.brtNo || "").split(":");
+  const busNo = cleanUlsanBusNo(option.bnodeName);
+  const data = await ulsanPost({
+    postData: {
+      serviceName: "routeBusService",
+      methodName: "getBusTimeTableInfo",
+      brtId: parts[0],
+      brtNo: busNo,
+      dywkVal,
+      brtClass: parts[2],
+      bttDirection: parts[4]
+    }
+  });
+  const row = data.rows?.[0] || {};
+  const isCircular = String(parts[4]) === "3";
+  const fiducialTitle = isCircular ? row.circularTitle?.[0] : row.fiducialTitle?.[0];
+  const fiducialInfo = isCircular ? row.circularInfo || [] : row.fiducialInfo || [];
+  const terminalTitle = row.terminalTitle?.[0];
+  const terminalInfo = isCircular ? [] : row.terminalInfo || [];
+  const fiducialName = fiducialTitle ? `${fiducialTitle.stStopName} → ${fiducialTitle.edStopName}` : "기점방향";
+  const terminalName = terminalTitle ? `${terminalTitle.stStopName} → ${terminalTitle.edStopName}` : "종점방향";
+  const fiducialTimes = fiducialInfo.map((item) => formatUlsanTime(item.bttStarttime)).filter(Boolean);
+  const terminalTimes = terminalInfo.map((item) => formatUlsanTime(item.bttStarttime)).filter(Boolean);
+  return {
+    title: label,
+    headers: ["순번", fiducialName, terminalTimes.length ? terminalName : ""].filter(Boolean),
+    rows: buildUlsanRows(fiducialName, fiducialTimes, terminalName, terminalTimes).map((row) => terminalTimes.length ? row : row.slice(0, 2)),
+    firstTime: fiducialTimes[0] || terminalTimes[0] || "-",
+    lastTime: [...fiducialTimes, ...terminalTimes].filter(Boolean).slice(-1)[0] || "-",
+    interval: summarizeUlsanInterval([...fiducialTimes, ...terminalTimes])
+  };
+}
+
+async function fetchUlsanRouteStops(brtId) {
+  const data = await ulsanPost({
+    postData: { serviceName: "routeStationService", methodName: "getGridList", paging: false },
+    record: { routeId: brtId },
+    sorting: [{ column: "pntSqno", order: "asc" }]
+  });
+  return (data.rows || []).map((stop) => stop.stopname).filter(Boolean);
+}
+
+async function handleUlsanBusSearch(req, res) {
+  try {
+    const busNo = String(req.searchParams.get("busNo") || "").trim();
+    if (!busNo) return sendJson(res, 400, { error: "버스번호가 필요합니다." });
+    const options = await ulsanPost({ postData: { serviceName: "routeBusService", methodName: "getOptionList" } });
+    const normalized = busNo.replace(/\s+/g, "");
+    const route = (options.rows || []).find((item) => cleanUlsanBusNo(item.bnodeName).replace(/\s+/g, "") === normalized)
+      || (options.rows || []).find((item) => cleanUlsanBusNo(item.bnodeName).replace(/\s+/g, "").includes(normalized));
+    if (!route) return sendJson(res, 404, { error: `${busNo}번 울산버스 시간표를 찾지 못했습니다.` });
+    const schedules = await Promise.all([
+      fetchUlsanSchedule(route, "평일", 0),
+      fetchUlsanSchedule(route, "토요일", 7),
+      fetchUlsanSchedule(route, "일/공휴일", 1)
+    ]);
+    const brtId = String(route.brtNo || "").split(":")[0];
+    const routeStops = await fetchUlsanRouteStops(brtId);
+    const endpoints = parseUlsanRouteName(route.bnodeName);
+    sendJson(res, 200, {
+      source: "울산버스",
+      officialUrl: `${ULSAN_BUS_ORIGIN}/route/timetable.do`,
+      realTimeUrl: `https://map.naver.com/p/search/${encodeURIComponent(`울산 ${cleanUlsanBusNo(route.bnodeName) || busNo}번 버스`)}`,
+      searchedAt: new Date().toISOString(),
+      busNo: cleanUlsanBusNo(route.bnodeName) || busNo,
+      company: "울산광역시 시내버스",
+      origin: endpoints.origin,
+      destination: endpoints.destination,
+      busKind: "시내버스",
+      interval: schedules[0]?.interval || "-",
+      firstTime: schedules[0]?.firstTime || "-",
+      lastTime: schedules[0]?.lastTime || "-",
+      majorStops: [...new Set(routeStops)].slice(0, 10),
+      schedules
+    });
+  } catch (error) {
+    sendJson(res, 502, { error: error.message });
+  }
+}
+
 async function handleAirportLimousineSearch(req, res) {
   try {
     const busNo = String(req.searchParams.get("busNo") || "").trim().toUpperCase();
@@ -1482,6 +1808,9 @@ export default {
     if (url.pathname === "/api/newsmile/search") return runApi(handleNewsmileSearch, req);
     if (url.pathname === "/api/newsmile/download") return runApi(handleNewsmileDownload, req);
     if (url.pathname === "/api/jeju-bus/search") return runApi(handleJejuBusSearch, req);
+    if (url.pathname === "/api/busan-bus/search") return runApi(handleBusanBusSearch, req);
+    if (url.pathname === "/api/incheon-bus/search") return runApi(handleIncheonBusSearch, req);
+    if (url.pathname === "/api/ulsan-bus/search") return runApi(handleUlsanBusSearch, req);
     if (url.pathname === "/api/airport-limousine/search") return runApi(handleAirportLimousineSearch, req);
     if (url.pathname === "/api/airport-limousine/routes") return runApi(handleAirportLimousineRoutes, req);
     if (url.pathname === "/api/seoul-airbus/search") return runApi(handleSeoulAirbusSearch, req);

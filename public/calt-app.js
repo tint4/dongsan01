@@ -70,7 +70,7 @@ function renderScheduleSection(title, rows) {
 function renderBlogPost(result) {
   const searchedDate = plainDateFromIso(result.searchedAt);
   const majorStops = result.majorStops && result.majorStops.length ? result.majorStops.join(", ") : "-";
-  const busLocationUrl = `https://map.naver.com/p/search/${encodeURIComponent(`${result.company} ${result.busNo}번 실시간 버스위치`)}`;
+  const busLocationUrl = `https://map.naver.com/p/search/${encodeURIComponent(`${result.company} ${result.busNo}번 버스`)}`;
   blogPost.innerHTML = `
     <p class="post-kicker">대중교통과 여행하기</p>
     <h2 class="post-title">${PROVIDER.name} ${result.busNo}번 시간표</h2>
@@ -103,7 +103,7 @@ function renderBlogPost(result) {
           </tr>
           <tr>
             <th>실시간 버스위치</th>
-            <td colspan="3"><a href="${busLocationUrl}" target="_blank" rel="noopener">네이버지도에서 ${result.busNo}번 실시간 버스위치 검색</a></td>
+            <td colspan="3"><a href="${busLocationUrl}" target="_blank" rel="noopener">네이버지도에서 ${result.busNo}번 버스 검색</a></td>
           </tr>
         </tbody>
       </table>

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>부산버스 시간표 만들기</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <nav class="page-nav" aria-label="페이지 이동">
+        <a class="home-back-link" href="./index.html">메인페이지로 돌아가기</a>
+      </nav>
+
+      <section class="search-panel" aria-label="부산버스 시간표 검색">
+        <div>
+          <p class="blog-name">대중교통과 여행하기</p>
+          <h1>부산버스 시간표 만들기</h1>
+        </div>
+
+        <form id="busanBusForm" class="buspia-search-form">
+          <label>
+            <span>버스번호</span>
+            <input id="busNoInput" type="text" autocomplete="off" placeholder="예: 1001, 31, 해운대구3" required />
+          </label>
+          <button type="submit">시간표 검색</button>
+        </form>
+        <p id="status" class="status" role="status"></p>
+      </section>
+
+      <section class="result-tools">
+        <button id="openNaverBtn" type="button" disabled>네이버 글쓰기 열기</button>
+      </section>
+
+      <article id="blogPost" class="blog-post">
+        <p class="empty">버스번호를 입력하면 부산버스 정류소별 첫차/막차 표가 만들어집니다.</p>
+      </article>
+    </main>
+
+    <script src="./busan-bus-app.js"></script>
+  </body>
+</html>

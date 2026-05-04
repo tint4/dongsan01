@@ -1,4 +1,4 @@
-const form = document.querySelector("#jejuBusForm");
+const form = document.querySelector("#incheonBusForm");
 const busNoInput = document.querySelector("#busNoInput");
 const statusEl = document.querySelector("#status");
 const openNaverBtn = document.querySelector("#openNaverBtn");
@@ -21,46 +21,14 @@ async function apiGet(path) {
   return data;
 }
 
-function renderScheduleTable(schedule, index) {
-  const headers = schedule.headers.map((header) => `<th>${header}</th>`).join("");
-  const rows = schedule.rows
-    .map((row) => `<tr>${row.map((cell) => `<td>${cell || "-"}</td>`).join("")}</tr>`)
-    .join("");
-  return `
-    <section class="jeju-schedule-panel ${index === 0 ? "active" : ""}" data-panel="${index}">
-      <div class="table-wrap">
-        <table>
-          <thead><tr>${headers}</tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
-    </section>
-  `;
-}
-
-function activateTab(index) {
-  blogPost.querySelectorAll(".jeju-tab").forEach((button) => button.classList.toggle("active", button.dataset.tab === String(index)));
-  blogPost.querySelectorAll(".jeju-schedule-panel").forEach((panel) => panel.classList.toggle("active", panel.dataset.panel === String(index)));
-}
-
-function bindTabs() {
-  blogPost.querySelectorAll(".jeju-tab").forEach((button) => {
-    button.addEventListener("click", () => activateTab(button.dataset.tab));
-  });
-}
-
 function renderBlogPost(result) {
   const searchedDate = plainDateFromIso(result.searchedAt);
   const majorStops = result.majorStops && result.majorStops.length ? result.majorStops.join(", ") : "-";
-  const tabs = result.schedules
-    .map((schedule, index) => `<button class="jeju-tab ${index === 0 ? "active" : ""}" type="button" data-tab="${index}">${schedule.title}</button>`)
-    .join("");
-  const panels = result.schedules.map(renderScheduleTable).join("");
 
   blogPost.innerHTML = `
     <p class="post-kicker">대중교통과 여행하기</p>
-    <h2 class="post-title">제주버스 ${result.busNo}번 시간표</h2>
-    <p class="post-meta">${searchedDate} 제주버스 조회 기준</p>
+    <h2 class="post-title">인천버스 ${result.busNo}번 운행 정보</h2>
+    <p class="post-meta">${searchedDate} 인천버스 조회 기준</p>
 
     <div class="table-wrap">
       <table class="route-info-table buspia-meta-table">
@@ -75,7 +43,7 @@ function renderBlogPost(result) {
             <th>시간표 확인일</th>
             <td>${searchedDate}</td>
             <th>버스회사</th>
-            <td>${result.company}</td>
+            <td>${result.company || "-"}</td>
           </tr>
           <tr>
             <th>기점</th>
@@ -90,18 +58,26 @@ function renderBlogPost(result) {
             <td>${result.interval || "-"}</td>
           </tr>
           <tr>
+            <th>첫차시간</th>
+            <td>${result.firstTime || "-"}</td>
+            <th>막차시간</th>
+            <td>${result.lastTime || "-"}</td>
+          </tr>
+          <tr>
+            <th>실시간 위치</th>
+            <td><a href="${result.realTimeUrl}" target="_blank" rel="noopener">확인하기</a></td>
+            <th>비고</th>
+            <td></td>
+          </tr>
+          <tr>
             <th>주요 정류장</th>
             <td colspan="3">${majorStops}</td>
           </tr>
         </tbody>
       </table>
     </div>
-
-    <div class="jeju-tabs">${tabs}</div>
-    ${panels || '<p class="empty">조회된 시간표가 없습니다.</p>'}
   `;
   openNaverBtn.disabled = false;
-  bindTabs();
 }
 
 form.addEventListener("submit", async (event) => {
@@ -110,10 +86,10 @@ form.addEventListener("submit", async (event) => {
   if (!busNo) return;
 
   try {
-    setStatus(`${busNo}번 제주버스 시간표를 조회하고 있습니다.`);
-    const result = await apiGet(`/api/jeju-bus/search?busNo=${encodeURIComponent(busNo)}`);
+    setStatus(`${busNo}번 인천버스 정보를 조회하고 있습니다.`);
+    const result = await apiGet(`/api/incheon-bus/search?busNo=${encodeURIComponent(busNo)}`);
     renderBlogPost(result);
-    setStatus(`${result.busNo}번 제주버스 시간표를 만들었습니다.`);
+    setStatus(`${result.busNo}번 인천버스 운행 정보표를 만들었습니다.`);
   } catch (error) {
     setStatus(error.message, true);
   }

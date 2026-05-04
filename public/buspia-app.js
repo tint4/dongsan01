@@ -28,7 +28,7 @@ async function apiGet(path) {
 
 function renderBlogPost(route, searchedAt) {
   const stops = route.stops.length ? route.stops.join(", ") : "-";
-  const busLocationUrl = `https://map.naver.com/p/search/${encodeURIComponent(`버스피아 ${route.routeNo}번 실시간 버스위치`)}`;
+  const busLocationUrl = `https://map.naver.com/p/search/${encodeURIComponent(`버스피아 ${route.routeNo}번 버스`)}`;
   blogPost.innerHTML = `
     <p class="post-kicker">대중교통 타고 여행하기</p>
     <h2 class="post-title">버스피아 공항버스 ${route.routeNo}번 시간표</h2>
@@ -71,7 +71,7 @@ function renderBlogPost(route, searchedAt) {
           </tr>
           <tr>
             <th>실시간 버스위치</th>
-            <td colspan="3"><a href="${busLocationUrl}" target="_blank" rel="noopener">네이버지도에서 ${route.routeNo}번 실시간 버스위치 검색</a></td>
+            <td colspan="3"><a href="${busLocationUrl}" target="_blank" rel="noopener">네이버지도에서 ${route.routeNo}번 버스 검색</a></td>
           </tr>
         </tbody>
       </table>
