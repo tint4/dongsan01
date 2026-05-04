@@ -539,6 +539,30 @@ th {
   line-height: 1.55;
 }
 
+.jeju-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px 0 8px;
+}
+
+.jeju-tab {
+  min-height: 38px;
+  background: #475569;
+}
+
+.jeju-tab.active {
+  background: var(--green);
+}
+
+.jeju-schedule-panel {
+  display: none;
+}
+
+.jeju-schedule-panel.active {
+  display: block;
+}
+
 .route-info-table td:nth-child(2),
 .route-info-table td:nth-child(4) {
   width: 32%;

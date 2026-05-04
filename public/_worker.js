@@ -2,12 +2,15 @@ const BUSTAGO_ORIGIN = "https://www.bustago.or.kr";
 const TMONEY_INTERCITY_ORIGIN = "https://txbus.t-money.co.kr";
 const KOBUS_ORIGIN = "https://www.kobus.co.kr";
 const BUSPIA_ORIGIN = "https://www.buspia.co.kr";
+const NEWSMILE_ORIGIN = "http://www.newsmilebus.com";
+const JEJU_BUS_ORIGIN = "https://bus.jeju.go.kr";
 const AIRPORT_LIMOUSINE_ORIGIN = "https://airportlimousine.co.kr";
 const SEOUL_AIRBUS_ORIGIN = "https://www.seoulairbus.com";
 const CALT_ORIGIN = "https://www.calt.co.kr";
 const KLIMOUSINE_ORIGIN = "https://klimousine.com";
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
 const Buffer = { from(value) { return value; } };
+const path = { extname(value) { const clean = String(value || "").split(/[?#]/)[0]; const index = clean.lastIndexOf("."); return index >= 0 ? clean.slice(index) : ""; } };
 
 function compactCookie(headers) {
   const raw = headers.get("set-cookie");
@@ -149,6 +152,11 @@ function absoluteBuspiaUrl(value) {
   return new URL(value, BUSPIA_ORIGIN).href;
 }
 
+function absoluteNewsmileUrl(value) {
+  if (!value) return "";
+  return new URL(value, NEWSMILE_ORIGIN).href;
+}
+
 function absoluteAirportLimousineUrl(value) {
   if (!value) return "";
   return new URL(value, AIRPORT_LIMOUSINE_ORIGIN).href;
@@ -213,6 +221,74 @@ async function getBuspiaTimeImage(seq) {
   const imageSrc = (html.match(/<img[^>]+src=["']([^"']+)["']/i) || [])[1] || "";
   if (!imageSrc) throw new Error("운행시간 이미지 주소를 찾지 못했습니다.");
   return absoluteBuspiaUrl(imageSrc);
+}
+
+async function fetchNewsmileHtml(pathname, encoding = "utf-8") {
+  const response = await fetch(`${NEWSMILE_ORIGIN}${pathname}`, {
+    headers: { "user-agent": USER_AGENT, referer: `${NEWSMILE_ORIGIN}/sub01.asp` }
+  });
+  const buffer = await response.arrayBuffer();
+  const html = new TextDecoder(encoding).decode(buffer);
+  if (!response.ok) throw new Error(`새천년미소 응답 오류 ${response.status}: ${html.slice(0, 200)}`);
+  return html;
+}
+
+function parseNewsmileSearchRoutes(html) {
+  const tables = [...html.matchAll(/<table[^>]*width="672"[\s\S]*?<\/table>/gi)].map((match) => match[0]);
+  return tables
+    .map((table) => {
+      const cells = [...table.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((match) => htmlText(match[1]));
+      const idx = (table.match(/bus\.asp\?idx=(\d+)/i) || [])[1] || "";
+      return {
+        routeTitle: cells[0] || "",
+        routeNo: cells[1] || "",
+        depName: cells[2] || "",
+        arrName: cells[3] || "",
+        firstTime: cells[4] || "",
+        lastTime: cells[5] || "",
+        returnDepName: cells[6] || "",
+        returnArrName: cells[7] || "",
+        returnFirstTime: cells[8] || "",
+        returnLastTime: cells[9] || "",
+        idx,
+        company: "경주 새천년미소",
+        sourceUrl: `${NEWSMILE_ORIGIN}/sub01/bus.asp?idx=${idx}`
+      };
+    })
+    .filter((route) => route.routeNo && route.idx);
+}
+
+async function fetchNewsmileRoutes(keyword, limit = 20) {
+  const params = /^\d/.test(keyword)
+    ? new URLSearchParams({ ekeyword: keyword, keyword: "" })
+    : new URLSearchParams({ ekeyword: "", keyword });
+  const html = await fetchNewsmileHtml(`/sub01/05_01_new.asp?${params.toString()}`);
+  return parseNewsmileSearchRoutes(html).slice(0, limit);
+}
+
+function parseNewsmileDetail(html, route) {
+  const imageSources = [...html.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi)]
+    .map((match) => match[1])
+    .filter((src) => /\/prg_guma\/nosun_list\/data/i.test(src));
+  const imageUrl = absoluteNewsmileUrl(imageSources.find((src) => /\/data\//i.test(src)) || imageSources[0] || "");
+  const routeImageUrl = absoluteNewsmileUrl(imageSources.find((src) => /\/data2\//i.test(src)) || "");
+  const stopNames = [...html.matchAll(/<td[^>]*height="17"[^>]*>([\s\S]*?)<\/td>/gi)]
+    .map((match) => htmlText(match[1]).replace(/\s*-\s*$/, "").trim())
+    .filter((name) => name && !/km|\d/.test(name));
+  const stops = [...new Set([route.depName, ...stopNames, route.arrName].filter(Boolean))].slice(0, 7);
+  return {
+    ...route,
+    stops,
+    imageUrl,
+    routeImageUrl,
+    downloadUrl: `/api/newsmile/download?idx=${encodeURIComponent(route.idx)}&routeNo=${encodeURIComponent(route.routeNo)}&kind=time`,
+    routeDownloadUrl: routeImageUrl ? `/api/newsmile/download?idx=${encodeURIComponent(route.idx)}&routeNo=${encodeURIComponent(route.routeNo)}&kind=route` : ""
+  };
+}
+
+async function getNewsmileRouteWithImage(route) {
+  const detailHtml = await fetchNewsmileHtml(`/sub01/bus.asp?idx=${encodeURIComponent(route.idx)}`, "euc-kr");
+  return parseNewsmileDetail(detailHtml, route);
 }
 
 function parseAirportLimousineRoutes(html) {
@@ -919,6 +995,204 @@ async function handleBuspiaDownload(req, res) {
   }
 }
 
+async function handleNewsmileSearch(req, res) {
+  try {
+    const keyword = String(req.searchParams.get("q") || "").trim();
+    if (!keyword) return sendJson(res, 200, { routes: [] });
+    const limit = Math.max(1, Math.min(36, Number(req.searchParams.get("limit") || 20)));
+    const routes = await fetchNewsmileRoutes(keyword, limit);
+    const routesWithImages = await Promise.all(
+      routes.map(async (route) => {
+        try {
+          return await getNewsmileRouteWithImage(route);
+        } catch (error) {
+          return { ...route, stops: [route.depName, route.arrName].filter(Boolean), imageUrl: "", routeImageUrl: "", downloadUrl: "", imageError: error.message };
+        }
+      })
+    );
+
+    sendJson(res, 200, {
+      source: "경주 새천년미소",
+      officialUrl: `${NEWSMILE_ORIGIN}/sub01.asp`,
+      searchedAt: new Date().toISOString(),
+      routes: routesWithImages
+    });
+  } catch (error) {
+    sendJson(res, 502, { error: error.message });
+  }
+}
+
+async function handleNewsmileDownload(req, res) {
+  try {
+    const idx = String(req.searchParams.get("idx") || "").trim();
+    const routeNo = String(req.searchParams.get("routeNo") || "newsmile").replace(/[^\w가-힣-]/g, "");
+    const kind = String(req.searchParams.get("kind") || "time").trim();
+    if (!idx) {
+      res.writeHead(400, { "content-type": "text/plain; charset=utf-8" });
+      res.end("idx is required");
+      return;
+    }
+
+    const detailHtml = await fetchNewsmileHtml(`/sub01/bus.asp?idx=${encodeURIComponent(idx)}`, "euc-kr");
+    const detail = parseNewsmileDetail(detailHtml, { routeNo, idx });
+    const imageUrl = kind === "route" ? detail.routeImageUrl : detail.imageUrl;
+    if (!imageUrl) throw new Error("시간표 이미지 주소를 찾지 못했습니다.");
+    const imageResponse = await fetch(imageUrl, { headers: { "user-agent": USER_AGENT, referer: NEWSMILE_ORIGIN } });
+    if (!imageResponse.ok) throw new Error(`이미지 다운로드 오류 ${imageResponse.status}`);
+
+    const buffer = Buffer.from(await imageResponse.arrayBuffer());
+    const ext = path.extname(new URL(imageUrl).pathname) || ".jpg";
+    res.writeHead(200, {
+      "content-type": imageResponse.headers.get("content-type") || "image/jpeg",
+      "content-disposition": `attachment; filename=\"newsmile-${encodeURIComponent(routeNo)}-${kind === "route" ? "route" : "time"}${ext}\"`
+    });
+    res.end(buffer);
+  } catch (error) {
+    res.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
+    res.end(error.message);
+  }
+}
+
+async function jejuPost(pathname, params) {
+  const text = await postForm(JEJU_BUS_ORIGIN, pathname, params, "/publicTrafficInformation/generalBusSchedule?viewtype=2");
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`제주버스 응답을 해석하지 못했습니다: ${text.slice(0, 200)}`);
+  }
+}
+
+async function fetchJejuRouteGroups() {
+  const types = ["1", "2", "3", "4", "5", "6"];
+  const groups = await Promise.all(types.map((type) => jejuPost("/publicTrafficInformation/getBusRouteNum", { GROUTE_TYPE: type })));
+  return groups.flat();
+}
+
+function jejuBusKind(route) {
+  const detailType = String(route.ROUTE_BUS_DETAIL_TP || "");
+  const routeType = String(route.ROUTE_BUS_TP || "");
+  if (detailType === "4") return "급행버스";
+  if (detailType === "6") return "공항버스";
+  if (detailType === "5") return "읍면지선버스";
+  if (detailType === "3") return routeType === "1" ? "간선버스" : "지선버스";
+  if (detailType === "2") return "지선버스";
+  return routeType === "1" ? "간선버스" : "일반버스";
+}
+
+function slimJejuColumns(headers) {
+  const stopIndexes = headers.map((_, index) => index).filter((index) => index > 0);
+  if (stopIndexes.length <= 5) return headers.map((_, index) => index);
+  const keepStops = stopIndexes.filter((_, index) => index % 2 === 0);
+  const last = stopIndexes[stopIndexes.length - 1];
+  if (!keepStops.includes(last)) keepStops.push(last);
+  return [0, ...keepStops];
+}
+
+function summarizeInterval(times) {
+  const minutes = [...new Set(times)]
+    .filter((time) => /^\d{1,2}:\d{2}$/.test(time))
+    .map((time) => {
+      const [hour, minute] = time.split(":").map(Number);
+      return hour * 60 + minute;
+    })
+    .sort((a, b) => a - b);
+  const gaps = minutes.slice(1).map((value, index) => value - minutes[index]).filter((gap) => gap > 0);
+  if (!gaps.length) return "-";
+  return `약 ${Math.round(gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length)}분`;
+}
+
+function jejuRouteEndpoints(sheetTitle, fallbackNumber) {
+  const clean = String(sheetTitle || "").replace(new RegExp(`^${fallbackNumber}\\s*`), "");
+  const parts = clean.split("-").map((part) => part.trim()).filter(Boolean);
+  return { origin: parts[0] || "", destination: parts[parts.length - 1] || "" };
+}
+
+async function fetchJejuScheduleDetail(scheduleId) {
+  const response = await fetch(`${JEJU_BUS_ORIGIN}/mobile/schedule/detailSchedule?scheduleId=${encodeURIComponent(scheduleId)}`, {
+    headers: { "user-agent": USER_AGENT, referer: `${JEJU_BUS_ORIGIN}/mobile/schedule/listScheduleNew` }
+  });
+  const html = await response.text();
+  if (!response.ok) throw new Error(`제주버스 상세시간표 조회 오류 ${response.status}`);
+  return html;
+}
+
+function parseJejuScheduleDetailInfo(html) {
+  const via = htmlText((html.match(/<td[^>]*class="rotue-via[^"]*"[^>]*>([\s\S]*?)<\/td>/) || [])[1] || "");
+  const waypoint = htmlText((html.match(/<td[^>]*class="route-waypoint[^"]*"[^>]*>([\s\S]*?)<\/td>/) || [])[1] || "");
+  const desc = htmlText((html.match(/<td[^>]*class="route-desc"[^>]*colspan="3"[^>]*>([\s\S]*?)<\/td>/) || [])[1] || "");
+  const companyMatch = desc.match(/,\s*([^,()]+)\(([^)]+)\)\s*$/);
+  const intervalMatch = desc.match(/배차간격\s*([^,]+)/);
+  const stops = via.split("-").map((item) => item.trim()).filter(Boolean);
+  return {
+    company: companyMatch ? `${companyMatch[1].trim()}(${companyMatch[2].trim()})` : "",
+    interval: intervalMatch ? intervalMatch[1].trim() : "",
+    stops,
+    endpoints: jejuRouteEndpoints(waypoint.replace(/→/g, "-"), "")
+  };
+}
+
+async function fetchJejuScheduleTable(scheduleId, title, detailInfo) {
+  const data = await jejuPost("/data/schedule/getScheduleTableInfo", { scheduleId });
+  const maxCol = Math.max(...data.map((item) => Number(item.MAX_COL || item.COLUMN_SEQ || 0)), 0);
+  const maxRow = Math.max(...data.map((item) => Number(item.MAX_ROW || item.ROW_SEQ || 0)), 0);
+  const matrix = Array.from({ length: maxRow + 1 }, () => Array(maxCol + 1).fill(""));
+  data.forEach((item) => {
+    const row = Number(item.ROW_SEQ || 0);
+    const col = Number(item.COLUMN_SEQ || 0);
+    matrix[row][col] = htmlText(item.COLUMN_NM || "");
+  });
+
+  const headers = ["구분", ...matrix[0].slice(1)];
+  const tableRows = matrix.slice(1).filter((row) => row.some((cell) => /^\d{1,2}:\d{2}$/.test(cell))).map((row, index) => [String(index + 1), ...row.slice(1)]);
+  const keepColumns = slimJejuColumns(headers);
+  return {
+    title,
+    headers: keepColumns.map((index) => headers[index]).filter(Boolean),
+    rows: tableRows.map((row) => keepColumns.map((index) => row[index] || "")).slice(0, 80),
+    allStops: headers.slice(1),
+    interval: detailInfo.interval || summarizeInterval(tableRows.map((row) => row[1] || row[2] || "").filter(Boolean))
+  };
+}
+
+async function handleJejuBusSearch(req, res) {
+  try {
+    const busNo = String(req.searchParams.get("busNo") || "").trim();
+    if (!busNo) return sendJson(res, 400, { error: "버스번호가 필요합니다." });
+
+    const groups = await fetchJejuRouteGroups();
+    const route = groups.find((item) =>
+      String(item.GSCHEDULE_NM || "")
+        .split(",")
+        .map((part) => part.trim().replace(/\(.*?\)/g, ""))
+        .includes(busNo)
+    );
+    if (!route) return sendJson(res, 404, { error: `${busNo}번 제주버스 시간표를 찾지 못했습니다.` });
+
+    const sheetInfo = await jejuPost("/data/schedule/getGroupScheduleInfo", { gscheduleId: route.GSCHEDULE_ID });
+    const details = await Promise.all(sheetInfo.map((sheet) => fetchJejuScheduleDetail(sheet.SCHEDULE_ID).then(parseJejuScheduleDetailInfo)));
+    const schedules = await Promise.all(sheetInfo.map((sheet, index) => fetchJejuScheduleTable(sheet.SCHEDULE_ID, `${sheet.SHEET_NUM} ${sheet.SHEET_NM}`, details[index] || {})));
+    const firstDetail = details[0] || {};
+    const endpoints = firstDetail.endpoints?.origin ? firstDetail.endpoints : jejuRouteEndpoints(sheetInfo[0]?.SHEET_NM || route.GSCHEDULE_NM, busNo);
+    const allStops = [...new Set((firstDetail.stops?.length ? firstDetail.stops : schedules.flatMap((sheet) => sheet.allStops)).filter(Boolean))];
+
+    sendJson(res, 200, {
+      source: "제주버스",
+      officialUrl: `${JEJU_BUS_ORIGIN}/publicTrafficInformation/generalBusSchedule?viewtype=2`,
+      searchedAt: new Date().toISOString(),
+      busNo,
+      company: firstDetail.company || "제주버스",
+      origin: endpoints.origin,
+      destination: endpoints.destination,
+      busKind: jejuBusKind(route),
+      interval: firstDetail.interval || schedules[0]?.interval || "-",
+      majorStops: allStops.slice(0, 10),
+      schedules
+    });
+  } catch (error) {
+    sendJson(res, 502, { error: error.message });
+  }
+}
+
 async function handleAirportLimousineSearch(req, res) {
   try {
     const busNo = String(req.searchParams.get("busNo") || "").trim().toUpperCase();
@@ -1205,6 +1479,9 @@ export default {
     if (url.pathname === "/api/kobus/search") return runApi(handleKobusSearch, req);
     if (url.pathname === "/api/buspia/search") return runApi(handleBuspiaSearch, req);
     if (url.pathname === "/api/buspia/download") return runApi(handleBuspiaDownload, req);
+    if (url.pathname === "/api/newsmile/search") return runApi(handleNewsmileSearch, req);
+    if (url.pathname === "/api/newsmile/download") return runApi(handleNewsmileDownload, req);
+    if (url.pathname === "/api/jeju-bus/search") return runApi(handleJejuBusSearch, req);
     if (url.pathname === "/api/airport-limousine/search") return runApi(handleAirportLimousineSearch, req);
     if (url.pathname === "/api/airport-limousine/routes") return runApi(handleAirportLimousineRoutes, req);
     if (url.pathname === "/api/seoul-airbus/search") return runApi(handleSeoulAirbusSearch, req);

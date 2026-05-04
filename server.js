@@ -1,12 +1,17 @@
 const fs = require("fs/promises");
 const http = require("http");
 const path = require("path");
+const zlib = require("zlib");
+
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = process.env.NODE_TLS_REJECT_UNAUTHORIZED || "0";
 
 const PORT = process.env.PORT || 3000;
 const BUSTAGO_ORIGIN = "https://www.bustago.or.kr";
 const TMONEY_INTERCITY_ORIGIN = "https://intercitybus.tmoney.co.kr";
 const KOBUS_ORIGIN = "https://www.kobus.co.kr";
 const BUSPIA_ORIGIN = "https://www.buspia.co.kr";
+const NEWSMILE_ORIGIN = "http://www.newsmilebus.com";
+const JEJU_BUS_ORIGIN = "https://bus.jeju.go.kr";
 const AIRPORT_LIMOUSINE_ORIGIN = "https://airportlimousine.co.kr";
 const SEOUL_AIRBUS_ORIGIN = "https://www.seoulairbus.com";
 const CALT_ORIGIN = "https://www.calt.co.kr";
@@ -26,6 +31,7 @@ const MIME_TYPES = {
 };
 
 let kobusRouteCache = null;
+let jejuCompanyCache = null;
 
 function readJsonBody(request) {
   return new Promise((resolve, reject) => {
@@ -189,6 +195,11 @@ function absoluteBuspiaUrl(value) {
   return new URL(value, BUSPIA_ORIGIN).href;
 }
 
+function absoluteNewsmileUrl(value) {
+  if (!value) return "";
+  return new URL(value, NEWSMILE_ORIGIN).href;
+}
+
 function absoluteAirportLimousineUrl(value) {
   if (!value) return "";
   return new URL(value, AIRPORT_LIMOUSINE_ORIGIN).href;
@@ -253,6 +264,225 @@ async function getBuspiaTimeImage(seq) {
   const imageSrc = (html.match(/<img[^>]+src=["']([^"']+)["']/i) || [])[1] || "";
   if (!imageSrc) throw new Error("운행시간 이미지 주소를 찾지 못했습니다.");
   return absoluteBuspiaUrl(imageSrc);
+}
+
+async function fetchNewsmileHtml(pathname, encoding = "utf-8") {
+  const response = await fetch(`${NEWSMILE_ORIGIN}${pathname}`, {
+    headers: { "user-agent": USER_AGENT, referer: `${NEWSMILE_ORIGIN}/sub01.asp` }
+  });
+  const buffer = await response.arrayBuffer();
+  const html = new TextDecoder(encoding).decode(buffer);
+  if (!response.ok) throw new Error(`새천년미소 응답 오류 ${response.status}: ${html.slice(0, 200)}`);
+  return html;
+}
+
+function parseNewsmileSearchRoutes(html) {
+  const tables = [...html.matchAll(/<table[^>]*width="672"[\s\S]*?<\/table>/gi)].map((match) => match[0]);
+  return tables
+    .map((table) => {
+      const cells = [...table.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((match) => htmlText(match[1]));
+      const idx = (table.match(/bus\.asp\?idx=(\d+)/i) || [])[1] || "";
+      return {
+        routeTitle: cells[0] || "",
+        routeNo: cells[1] || "",
+        depName: cells[2] || "",
+        arrName: cells[3] || "",
+        firstTime: cells[4] || "",
+        lastTime: cells[5] || "",
+        returnDepName: cells[6] || "",
+        returnArrName: cells[7] || "",
+        returnFirstTime: cells[8] || "",
+        returnLastTime: cells[9] || "",
+        idx,
+        company: "경주 새천년미소",
+        sourceUrl: `${NEWSMILE_ORIGIN}/sub01/bus.asp?idx=${idx}`
+      };
+    })
+    .filter((route) => route.routeNo && route.idx);
+}
+
+async function fetchNewsmileRoutes(keyword, limit = 20) {
+  const params = /^\d/.test(keyword)
+    ? new URLSearchParams({ ekeyword: keyword, keyword: "" })
+    : new URLSearchParams({ ekeyword: "", keyword });
+  const html = await fetchNewsmileHtml(`/sub01/05_01_new.asp?${params.toString()}`);
+  return parseNewsmileSearchRoutes(html).slice(0, limit);
+}
+
+function parseNewsmileDetail(html, route) {
+  const imageSources = [...html.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi)]
+    .map((match) => match[1])
+    .filter((src) => /\/prg_guma\/nosun_list\/data/i.test(src));
+  const imageUrl = absoluteNewsmileUrl(imageSources.find((src) => /\/data\//i.test(src)) || imageSources[0] || "");
+  const routeImageUrl = absoluteNewsmileUrl(imageSources.find((src) => /\/data2\//i.test(src)) || "");
+  const stopNames = [...html.matchAll(/<td[^>]*height="17"[^>]*>([\s\S]*?)<\/td>/gi)]
+    .map((match) => htmlText(match[1]).replace(/\s*-\s*$/, "").trim())
+    .filter((name) => name && !/km|\d/.test(name));
+  const stops = [...new Set([route.depName, ...stopNames, route.arrName].filter(Boolean))].slice(0, 7);
+  return {
+    ...route,
+    stops,
+    imageUrl,
+    routeImageUrl,
+    downloadUrl: `/api/newsmile/download?idx=${encodeURIComponent(route.idx)}&routeNo=${encodeURIComponent(route.routeNo)}&kind=time`,
+    routeDownloadUrl: routeImageUrl ? `/api/newsmile/download?idx=${encodeURIComponent(route.idx)}&routeNo=${encodeURIComponent(route.routeNo)}&kind=route` : ""
+  };
+}
+
+async function getNewsmileRouteWithImage(route) {
+  const detailHtml = await fetchNewsmileHtml(`/sub01/bus.asp?idx=${encodeURIComponent(route.idx)}`, "euc-kr");
+  return parseNewsmileDetail(detailHtml, route);
+}
+
+async function jejuPost(pathname, params) {
+  const response = await fetch(`${JEJU_BUS_ORIGIN}${pathname}`, {
+    method: "POST",
+    headers: {
+      "user-agent": USER_AGENT,
+      "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+      "x-requested-with": "XMLHttpRequest",
+      referer: `${JEJU_BUS_ORIGIN}/publicTrafficInformation/generalBusSchedule?viewtype=2`
+    },
+    body: new URLSearchParams(params)
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`제주버스 응답 오류 ${response.status}: ${text.slice(0, 200)}`);
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`제주버스 응답을 해석할 수 없습니다: ${text.slice(0, 200)}`);
+  }
+}
+
+async function fetchJejuRouteGroups() {
+  const types = ["1", "2", "3", "4", "5", "6"];
+  const groups = await Promise.all(types.map((type) => jejuPost("/publicTrafficInformation/getBusRouteNum", { GROUTE_TYPE: type })));
+  return groups.flat();
+}
+
+function cleanJejuCompany(value) {
+  return htmlText(value).replace(/\s+/g, " ").trim();
+}
+
+function jejuRouteListHas(routeText, busNo) {
+  const normalized = String(busNo || "").replace(/[^\d-]/g, "");
+  return (String(routeText || "").match(/\d+(?:-\d+)?/g) || []).some((routeNo) => routeNo === normalized);
+}
+
+function parseJejuCompanies(html) {
+  const pageStart = html.indexOf('<div id="page4"');
+  const pageHtml = pageStart >= 0 ? html.slice(pageStart) : html;
+  const tableHtml = (pageHtml.match(/<table[^>]*summary="[^"]*"[\s\S]*?<\/table>/) || [])[0] || pageHtml;
+  const cells = [...tableHtml.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((match) => htmlText(match[1]));
+  return cells
+    .map((cell, index) => ({ company: cleanJejuCompany(cell), routes: cells[index + 1] || "" }))
+    .filter((item) => item.company.includes("☏") && item.routes);
+}
+
+async function fetchJejuCompanyInfo(busNo) {
+  if (!jejuCompanyCache) {
+    const response = await fetch(`${JEJU_BUS_ORIGIN}/publicTrafficInformation/generalBusSchedule?viewtype=3`, {
+      headers: { "user-agent": USER_AGENT }
+    });
+    const html = await response.text();
+    if (!response.ok) throw new Error(`제주버스 회사정보 조회 오류 ${response.status}`);
+    jejuCompanyCache = parseJejuCompanies(html);
+  }
+
+  return jejuCompanyCache
+    .filter((item) => jejuRouteListHas(item.routes, busNo))
+    .map((item) => item.company)
+    .filter((company, index, list) => company && list.indexOf(company) === index)
+    .join(" / ");
+}
+
+function jejuBusKind(route) {
+  const detailType = String(route.ROUTE_BUS_DETAIL_TP || "");
+  const routeType = String(route.ROUTE_BUS_TP || "");
+  if (detailType === "4") return "급행버스";
+  if (detailType === "6") return "공항버스";
+  if (detailType === "5") return "읍면지선버스";
+  if (detailType === "3") return routeType === "1" ? "간선버스" : "지선버스";
+  if (detailType === "2") return "지선버스";
+  return routeType === "1" ? "간선버스" : "일반버스";
+}
+
+function summarizeInterval(times) {
+  const minutes = [...new Set(times)]
+    .filter((time) => /^\d{1,2}:\d{2}$/.test(time))
+    .map((time) => {
+      const [hour, minute] = time.split(":").map(Number);
+      return hour * 60 + minute;
+    })
+    .sort((a, b) => a - b);
+  const gaps = minutes.slice(1).map((value, index) => value - minutes[index]).filter((gap) => gap > 0);
+  if (!gaps.length) return "-";
+  return `약 ${Math.round(gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length)}분`;
+}
+
+function slimJejuColumns(headers) {
+  const stopIndexes = headers.map((_, index) => index).filter((index) => index > 0);
+  if (stopIndexes.length <= 5) return headers.map((_, index) => index);
+  const keepStops = stopIndexes.filter((_, index) => index % 2 === 0);
+  const last = stopIndexes[stopIndexes.length - 1];
+  if (!keepStops.includes(last)) keepStops.push(last);
+  return [0, ...keepStops];
+}
+
+function parseJejuScheduleSheets(buffer) {
+  return parseXlsx(buffer)
+    .map((sheet) => {
+      const headerRow = sheet.rows.find((row) => row.filter(Boolean).length >= 3 && row.some((cell) => cell === "구분")) || [];
+      const headerIndex = sheet.rows.indexOf(headerRow);
+      const rows = sheet.rows
+        .slice(headerIndex + 1)
+        .filter((row) => row.some((cell) => /^\d{1,2}:\d{2}$/.test(cell)))
+        .map((row) => row.slice(1));
+      const headers = headerRow.slice(1).map((cell) => String(cell || "").replace(/\s+/g, " ").trim()).filter(Boolean);
+      const tableRows = rows.map((row) => row.slice(0, headers.length));
+      const keepColumns = slimJejuColumns(headers);
+      return {
+        title: sheet.name,
+        headers: keepColumns.map((index) => headers[index]).filter(Boolean),
+        rows: tableRows.map((row) => keepColumns.map((index) => row[index] || "")).slice(0, 80),
+        allStops: headers.slice(1),
+        interval: summarizeInterval(tableRows.map((row) => row[1] || row[2] || "").filter(Boolean))
+      };
+    })
+    .filter((sheet) => sheet.headers.length && sheet.rows.length);
+}
+
+async function fetchJejuScheduleExcel(gscheduleId) {
+  const response = await fetch(`${JEJU_BUS_ORIGIN}/data/schedule/downScheduleExcel?gscheduleId=${encodeURIComponent(gscheduleId)}`, {
+    headers: { "user-agent": USER_AGENT, referer: `${JEJU_BUS_ORIGIN}/publicTrafficInformation/generalBusSchedule?viewtype=2` }
+  });
+  if (!response.ok) throw new Error(`제주버스 시간표 다운로드 오류 ${response.status}`);
+  return Buffer.from(await response.arrayBuffer());
+}
+
+async function fetchJejuScheduleDetail(scheduleId) {
+  const response = await fetch(`${JEJU_BUS_ORIGIN}/mobile/schedule/detailSchedule?scheduleId=${encodeURIComponent(scheduleId)}`, {
+    headers: { "user-agent": USER_AGENT, referer: `${JEJU_BUS_ORIGIN}/mobile/schedule/listScheduleNew` }
+  });
+  const html = await response.text();
+  if (!response.ok) throw new Error(`제주버스 상세시간표 조회 오류 ${response.status}`);
+  return html;
+}
+
+function parseJejuScheduleDetailInfo(html) {
+  const desc = htmlText((html.match(/<td[^>]*class="route-desc"[^>]*colspan="3"[^>]*>([\s\S]*?)<\/td>/) || [])[1] || "");
+  const companyMatch = desc.match(/,\s*([^,()]+)\(([^)]+)\)\s*$/);
+  const intervalMatch = desc.match(/배차간격\s*([^,]+)/);
+  return {
+    company: companyMatch ? `${companyMatch[1].trim()}(${companyMatch[2].trim()})` : "",
+    interval: intervalMatch ? intervalMatch[1].trim() : ""
+  };
+}
+
+function jejuRouteEndpoints(sheetTitle, fallbackNumber) {
+  const clean = String(sheetTitle || "").replace(new RegExp(`^${fallbackNumber}\\s*`), "");
+  const parts = clean.split("-").map((part) => part.trim()).filter(Boolean);
+  return { origin: parts[0] || "", destination: parts[parts.length - 1] || "" };
 }
 
 function parseAirportLimousineRoutes(html) {
@@ -442,6 +672,76 @@ function parseSimpleTable(tableHtml) {
     [...match[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g)].map((cell) => htmlText(cell[1]))
   );
   return { headers, rows };
+}
+
+function unzipEntries(buffer) {
+  const entries = new Map();
+  let offset = 0;
+  const localHeader = 0x04034b50;
+  const dataDescriptor = 0x08074b50;
+  while (offset < buffer.length - 4) {
+    if (buffer.readUInt32LE(offset) !== localHeader) {
+      offset += 1;
+      continue;
+    }
+    const flags = buffer.readUInt16LE(offset + 6);
+    const method = buffer.readUInt16LE(offset + 8);
+    const compressedSize = buffer.readUInt32LE(offset + 18);
+    const nameLength = buffer.readUInt16LE(offset + 26);
+    const extraLength = buffer.readUInt16LE(offset + 28);
+    const name = buffer.slice(offset + 30, offset + 30 + nameLength).toString("utf8");
+    const dataStart = offset + 30 + nameLength + extraLength;
+    let dataEnd = dataStart + compressedSize;
+    let data = buffer.slice(dataStart, dataEnd);
+
+    if ((flags & 0x08) || compressedSize === 0) {
+      const nextHeader = buffer.indexOf(Buffer.from([0x50, 0x4b, 0x03, 0x04]), dataStart + 1);
+      const descriptor = buffer.indexOf(Buffer.from([0x50, 0x4b, 0x07, 0x08]), dataStart + 1);
+      dataEnd = descriptor >= 0 && (nextHeader < 0 || descriptor < nextHeader) ? descriptor : nextHeader;
+      if (dataEnd < 0) dataEnd = buffer.length;
+      data = buffer.slice(dataStart, dataEnd);
+    }
+
+    entries.set(name, method === 8 ? zlib.inflateRawSync(data).toString("utf8") : data.toString("utf8"));
+    offset = dataEnd;
+    if (buffer.readUInt32LE(offset) === dataDescriptor) offset += 16;
+  }
+  return entries;
+}
+
+function cellColumn(ref) {
+  const letters = String(ref || "").match(/[A-Z]+/)?.[0] || "A";
+  return [...letters].reduce((sum, letter) => sum * 26 + letter.charCodeAt(0) - 64, 0) - 1;
+}
+
+function parseXlsx(buffer) {
+  const files = unzipEntries(buffer);
+  const sharedXml = files.get("xl/sharedStrings.xml") || "";
+  const sharedStrings = [...sharedXml.matchAll(/<si>([\s\S]*?)<\/si>/g)].map((match) =>
+    htmlText([...match[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((t) => t[1]).join(""))
+  );
+  const workbookXml = files.get("xl/workbook.xml") || "";
+  const sheetNames = [...workbookXml.matchAll(/<sheet[^>]+name="([^"]+)"/g)].map((match) => htmlText(match[1]));
+  const sheetFiles = [...files.keys()].filter((name) => /^xl\/worksheets\/sheet\d+\.xml$/.test(name)).sort();
+
+  return sheetFiles.map((name, sheetIndex) => {
+    const rows = [];
+    const xml = files.get(name) || "";
+    [...xml.matchAll(/<row[^>]*r="(\d+)"[^>]*>([\s\S]*?)<\/row>/g)].forEach((rowMatch) => {
+      const row = [];
+    [...rowMatch[2].matchAll(/<c([^>]*)>([\s\S]*?)<\/c>/g)].forEach((cellMatch) => {
+      const attrs = cellMatch[1] || "";
+      const body = cellMatch[2] || "";
+      const ref = (attrs.match(/\br="([^"]+)"/) || [])[1] || "";
+      const type = (attrs.match(/\bt="([^"]+)"/) || [])[1] || "";
+      const value = (body.match(/<v>([\s\S]*?)<\/v>/) || [])[1] || "";
+      const col = cellColumn(ref);
+      row[col] = type === "s" ? sharedStrings[Number(value)] || "" : value.replace(/\.0$/, "");
+    });
+      rows[Number(rowMatch[1]) - 1] = row.map((value) => value || "");
+    });
+    return { name: sheetNames[sheetIndex] || `시간표 ${sheetIndex + 1}`, rows: rows.filter(Boolean) };
+  });
 }
 
 function rowsFromColumn({ headers, rows, columnIndex, departTerminal, arriveTerminal, company, adultFare, childFare }) {
@@ -959,6 +1259,103 @@ async function handleBuspiaDownload(req, res) {
   }
 }
 
+async function handleNewsmileSearch(req, res) {
+  try {
+    const keyword = String(req.searchParams.get("q") || "").trim();
+    if (!keyword) return sendJson(res, 200, { routes: [] });
+    const limit = Math.max(1, Math.min(36, Number(req.searchParams.get("limit") || 20)));
+    const routes = await fetchNewsmileRoutes(keyword, limit);
+    const routesWithImages = await Promise.all(
+      routes.map(async (route) => {
+        try {
+          return await getNewsmileRouteWithImage(route);
+        } catch (error) {
+          return { ...route, stops: [route.depName, route.arrName].filter(Boolean), imageUrl: "", routeImageUrl: "", downloadUrl: "", imageError: error.message };
+        }
+      })
+    );
+
+    sendJson(res, 200, {
+      source: "경주 새천년미소",
+      officialUrl: `${NEWSMILE_ORIGIN}/sub01.asp`,
+      searchedAt: new Date().toISOString(),
+      routes: routesWithImages
+    });
+  } catch (error) {
+    sendJson(res, 502, { error: error.message });
+  }
+}
+
+async function handleNewsmileDownload(req, res) {
+  try {
+    const idx = String(req.searchParams.get("idx") || "").trim();
+    const routeNo = String(req.searchParams.get("routeNo") || "newsmile").replace(/[^\w가-힣-]/g, "");
+    const kind = String(req.searchParams.get("kind") || "time").trim();
+    if (!idx) {
+      res.writeHead(400, { "content-type": "text/plain; charset=utf-8" });
+      res.end("idx is required");
+      return;
+    }
+
+    const detailHtml = await fetchNewsmileHtml(`/sub01/bus.asp?idx=${encodeURIComponent(idx)}`, "euc-kr");
+    const detail = parseNewsmileDetail(detailHtml, { routeNo, idx });
+    const imageUrl = kind === "route" ? detail.routeImageUrl : detail.imageUrl;
+    if (!imageUrl) throw new Error("시간표 이미지 주소를 찾지 못했습니다.");
+    const imageResponse = await fetch(imageUrl, { headers: { "user-agent": USER_AGENT, referer: NEWSMILE_ORIGIN } });
+    if (!imageResponse.ok) throw new Error(`이미지 다운로드 오류 ${imageResponse.status}`);
+
+    const buffer = Buffer.from(await imageResponse.arrayBuffer());
+    const ext = path.extname(new URL(imageUrl).pathname) || ".jpg";
+    res.writeHead(200, {
+      "content-type": imageResponse.headers.get("content-type") || "image/jpeg",
+      "content-disposition": `attachment; filename=\"newsmile-${encodeURIComponent(routeNo)}-${kind === "route" ? "route" : "time"}${ext}\"`
+    });
+    res.end(buffer);
+  } catch (error) {
+    res.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
+    res.end(error.message);
+  }
+}
+
+async function handleJejuBusSearch(req, res) {
+  try {
+    const busNo = String(req.searchParams.get("busNo") || "").trim();
+    if (!busNo) return sendJson(res, 400, { error: "버스번호가 필요합니다." });
+
+    const groups = await fetchJejuRouteGroups();
+    const route = groups.find((item) =>
+      String(item.GSCHEDULE_NM || "")
+        .split(",")
+        .map((part) => part.trim().replace(/\(.*?\)/g, ""))
+        .includes(busNo)
+    );
+    if (!route) return sendJson(res, 404, { error: `${busNo}번 제주버스 시간표를 찾지 못했습니다.` });
+
+    const sheetInfo = await jejuPost("/data/schedule/getGroupScheduleInfo", { gscheduleId: route.GSCHEDULE_ID });
+    const sheets = parseJejuScheduleSheets(await fetchJejuScheduleExcel(route.GSCHEDULE_ID));
+    const endpoints = jejuRouteEndpoints(sheets[0]?.title || sheetInfo[0]?.SHEET_NM || route.GSCHEDULE_NM, busNo);
+    const allStops = [...new Set(sheets.flatMap((sheet) => sheet.allStops).filter(Boolean))];
+    const detailInfo = sheetInfo[0]?.SCHEDULE_ID ? parseJejuScheduleDetailInfo(await fetchJejuScheduleDetail(sheetInfo[0].SCHEDULE_ID)) : {};
+    const company = detailInfo.company || (await fetchJejuCompanyInfo(busNo));
+
+    sendJson(res, 200, {
+      source: "제주버스",
+      officialUrl: `${JEJU_BUS_ORIGIN}/publicTrafficInformation/generalBusSchedule?viewtype=2`,
+      searchedAt: new Date().toISOString(),
+      busNo,
+      company: company || "제주버스",
+      origin: endpoints.origin,
+      destination: endpoints.destination,
+      busKind: jejuBusKind(route),
+      interval: detailInfo.interval || sheets[0]?.interval || "-",
+      majorStops: allStops.slice(0, 10),
+      schedules: sheets
+    });
+  } catch (error) {
+    sendJson(res, 502, { error: error.message });
+  }
+}
+
 async function handleAirportLimousineSearch(req, res) {
   try {
     const busNo = String(req.searchParams.get("busNo") || "").trim().toUpperCase();
@@ -1293,6 +1690,9 @@ const server = http.createServer(async (request, response) => {
   if (url.pathname === "/api/kobus/search") return handleKobusSearch(req, response);
   if (url.pathname === "/api/buspia/search") return handleBuspiaSearch(req, response);
   if (url.pathname === "/api/buspia/download") return handleBuspiaDownload(req, response);
+  if (url.pathname === "/api/newsmile/search") return handleNewsmileSearch(req, response);
+  if (url.pathname === "/api/newsmile/download") return handleNewsmileDownload(req, response);
+  if (url.pathname === "/api/jeju-bus/search") return handleJejuBusSearch(req, response);
   if (url.pathname === "/api/airport-limousine/search") return handleAirportLimousineSearch(req, response);
   if (url.pathname === "/api/airport-limousine/routes") return handleAirportLimousineRoutes(req, response);
   if (url.pathname === "/api/seoul-airbus/search") return handleSeoulAirbusSearch(req, response);
