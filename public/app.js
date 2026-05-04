@@ -253,7 +253,6 @@ function routeStops(result) {
 
 function renderBlogPost(result) {
   const stops = routeStops(result);
-  const busLocationUrl = `https://map.naver.com/p/search/${encodeURIComponent(`버스타고 ${result.depName} ${result.arrName} 실시간 버스위치`)}`;
   const rows = result.trips
     .map(
       (trip) => `
@@ -294,10 +293,6 @@ function renderBlogPost(result) {
           <tr>
             <th>주요 경유지</th>
             <td colspan="3">${stops}</td>
-          </tr>
-          <tr>
-            <th>실시간 버스위치</th>
-            <td colspan="3"><a href="${busLocationUrl}" target="_blank" rel="noopener">네이버지도에서 실시간 버스위치 검색</a></td>
           </tr>
         </tbody>
       </table>
