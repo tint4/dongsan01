@@ -1,9 +1,8 @@
-﻿const state = {
-  dep: null,
-  arr: null,
-  lastResult: null
-};
+﻿const state = { dep: null, arr: null, lastResult: null };
 
+const provider = document.body.dataset.provider;
+const providerName = document.body.dataset.providerName;
+const officialUrl = document.body.dataset.officialUrl;
 const depInput = document.querySelector("#depInput");
 const arrInput = document.querySelector("#arrInput");
 const dateInput = document.querySelector("#dateInput");
@@ -28,14 +27,26 @@ function defaultTravelDate() {
 
 dateInput.valueAsDate = defaultTravelDate();
 
-const MAIN_TERMINALS = [
-  { id: "0004", name: "서울남부", area: "서울", lat: 37.4849, lng: 127.0167 },
-  { id: "0010", name: "김포공항", area: "서울", lat: 37.5585, lng: 126.7945 },
-  { id: "0001", name: "동서울", area: "서울", lat: 37.5341, lng: 127.0947 },
-  { id: "9002", name: "부산서부", area: "부산", lat: 35.1631, lng: 128.9846 },
-  { id: "9401", name: "광주(유ㆍ스퀘어)", area: "광주", lat: 35.1601, lng: 126.8808 },
-  { id: "9201", name: "동대구", area: "대구", lat: 35.8779, lng: 128.6286 }
-];
+const QUICK_TERMINALS_BY_PROVIDER = {
+  "tmoney-intercity": [
+    { id: "0671801", name: "서울남부", area: "서울" },
+    { id: "0750501", name: "김포공항", area: "서울" },
+    { id: "0511601", name: "동서울", area: "서울" },
+    { id: "4696901", name: "부산서부(사상)", area: "부산" },
+    { id: "6193701", name: "광주(유·스퀘어)", area: "광주" },
+    { id: "4124601", name: "동대구", area: "대구" }
+  ],
+  kobus: [
+    { id: "010", name: "서울경부", area: "서울" },
+    { id: "021", name: "센트럴시티(서울)", area: "서울" },
+    { id: "032", name: "동서울", area: "서울" },
+    { id: "700", name: "부산", area: "부산" },
+    { id: "500", name: "광주(유·스퀘어)", area: "광주" },
+    { id: "801", name: "동대구", area: "대구" }
+  ]
+};
+
+const MAIN_TERMINALS = QUICK_TERMINALS_BY_PROVIDER[provider] || [];
 
 function setStatus(message, isError = false) {
   statusEl.textContent = message;
@@ -48,14 +59,9 @@ function money(value) {
 }
 
 function prettyDate(value) {
-  if (!value) return "";
+  if (!value || value.length < 8) return "";
   const date = new Date(`${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}T00:00:00`);
-  return new Intl.DateTimeFormat("ko-KR", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    weekday: "short"
-  }).format(date);
+  return new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "short" }).format(date);
 }
 
 function plainDate(value) {
@@ -70,18 +76,12 @@ async function apiGet(path) {
   return data;
 }
 
-function closeSuggestions() {
-  depList.classList.remove("open");
-  arrList.classList.remove("open");
-}
-
-function resetGeneratedPost() {
-  state.lastResult = null;
-  blogPost.innerHTML = '<p class="empty">출발지, 도착지, 날짜를 선택하면 블로그용 운행 정보가 여기에 만들어집니다.</p>';
-  copyTextBtn.disabled = true;
-  copyHtmlBtn.disabled = true;
-  openNaverBtn.disabled = true;
-  printBtn.disabled = true;
+function debounce(callback, wait = 250) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => callback(...args), wait);
+  };
 }
 
 function renderSuggestions(target, items, onPick) {
@@ -102,15 +102,21 @@ function renderSuggestions(target, items, onPick) {
     });
     target.appendChild(button);
   });
-
   target.classList.add("open");
 }
 
-function markQuickSelection(kind, terminal) {
-  const container = kind === "dep" ? depQuick : arrQuick;
-  container.querySelectorAll(".quick-terminal").forEach((button) => {
-    button.classList.toggle("selected", Boolean(terminal) && button.dataset.id === terminal.id);
-  });
+function closeSuggestions() {
+  depList.classList.remove("open");
+  arrList.classList.remove("open");
+}
+
+function resetGeneratedPost() {
+  state.lastResult = null;
+  blogPost.innerHTML = '<p class="empty">출발지, 도착지, 날짜를 선택하면 블로그용 운행 정보가 여기에 만들어집니다.</p>';
+  copyTextBtn.disabled = true;
+  copyHtmlBtn.disabled = true;
+  openNaverBtn.disabled = true;
+  printBtn.disabled = true;
 }
 
 function syncTerminalFields() {
@@ -124,11 +130,13 @@ function syncTerminalFields() {
 function selectTerminal(kind, terminal) {
   if (kind === "dep") {
     state.dep = terminal;
+    state.arr = null;
     depInput.value = terminal.name;
+    arrInput.value = "";
     arrInput.disabled = false;
-    arrInput.placeholder = "예: 강릉, 부산, 전주";
     depList.classList.remove("open");
     markQuickSelection("dep", terminal);
+    markQuickSelection("arr", null);
     setStatus(`${terminal.name} 출발지가 선택되었습니다.`);
     return;
   }
@@ -151,7 +159,16 @@ function swapTerminals() {
   setStatus(state.dep && state.arr ? "출발지와 도착지를 바꿨습니다." : "출발지와 도착지를 바꾸려면 두 터미널을 먼저 선택해 주세요.", !state.dep || !state.arr);
 }
 
+function markQuickSelection(kind, terminal) {
+  const container = kind === "dep" ? depQuick : arrQuick;
+  if (!container) return;
+  container.querySelectorAll(".quick-terminal").forEach((button) => {
+    button.classList.toggle("selected", Boolean(terminal) && button.dataset.id === terminal.id);
+  });
+}
+
 function renderQuickTerminals(container, kind) {
+  if (!container) return;
   container.innerHTML = "";
   MAIN_TERMINALS.forEach((terminal) => {
     const button = document.createElement("button");
@@ -164,34 +181,20 @@ function renderQuickTerminals(container, kind) {
   });
 }
 
-function debounce(callback, wait = 250) {
-  let timer;
-  return (...args) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => callback(...args), wait);
-  };
-}
-
 const searchDepartures = debounce(async () => {
   const keyword = depInput.value.trim();
   state.dep = null;
   state.arr = null;
   arrInput.value = "";
+  arrInput.disabled = true;
   markQuickSelection("dep", null);
   markQuickSelection("arr", null);
-
-  if (keyword.length < 2) {
-    depList.classList.remove("open");
-    return;
-  }
+  if (keyword.length < 1) return depList.classList.remove("open");
 
   try {
     setStatus("출발지 터미널을 찾고 있습니다.");
-    const data = await apiGet(`/api/terminals?q=${encodeURIComponent(keyword)}`);
-    renderSuggestions(depList, data.terminals, (item) => {
-      selectTerminal("dep", item);
-      arrInput.focus();
-    });
+    const data = await apiGet(`/api/${provider}/terminals?q=${encodeURIComponent(keyword)}`);
+    renderSuggestions(depList, data.terminals, (item) => selectTerminal("dep", item));
   } catch (error) {
     setStatus(error.message, true);
   }
@@ -201,59 +204,35 @@ const searchArrivals = debounce(async () => {
   const keyword = arrInput.value.trim();
   state.arr = null;
   markQuickSelection("arr", null);
-
-  if (!state.dep || keyword.length < 1) {
-    arrList.classList.remove("open");
-    return;
-  }
+  if (!state.dep || keyword.length < 1) return arrList.classList.remove("open");
 
   try {
     setStatus("도착지 터미널을 찾고 있습니다.");
     const data = await apiGet(
-      `/api/destinations?depTerId=${encodeURIComponent(state.dep.id)}&q=${encodeURIComponent(keyword)}`
+      `/api/${provider}/destinations?depTerId=${encodeURIComponent(state.dep.id)}&q=${encodeURIComponent(keyword)}`
     );
-    renderSuggestions(arrList, data.destinations, (item) => {
-      selectTerminal("arr", item);
-    });
+    renderSuggestions(arrList, data.destinations, (item) => selectTerminal("arr", item));
   } catch (error) {
     setStatus(error.message, true);
   }
 });
 
-function makePlainText(result) {
-  const rows = result.trips
-    .map(
-      (trip, index) =>
-        `${index + 1}. ${trip.departTime} / ${trip.departTerminal} → ${trip.arriveTerminal} / ${trip.company} / ${trip.busGrade || "-"} / 일반 ${money(trip.adultFare)} / 중고생 ${money(trip.studentFare)} / 아동 ${money(trip.childFare)} / 약 ${trip.duration}`
-    )
-    .join("\n");
-
-  return `${result.depName}에서 ${result.arrName} 가는 버스 시간표\n${prettyDate(result.date)} 기준\n\n${rows || "조회된 배차가 없습니다."}\n\n자료: 버스타고`;
-}
-
-function makePostHtml() {
-  return blogPost.innerHTML.trim();
-}
-
 function routeStops(result) {
   const routes = result.trips.map((trip) => trip.route).filter(Boolean);
-
   for (const route of routes) {
     const parts = String(route)
       .split(/(?:->|→|>|,|\/|\||\s+-\s+|\s{2,})/)
       .map((item) => item.trim())
       .filter(Boolean);
     const stops = parts.filter((name) => name !== result.depName && name !== result.arrName);
-
     if (stops.length) return [...new Set(stops)].join(", ");
   }
-
   return "";
 }
 
 function renderBlogPost(result) {
   const stops = routeStops(result);
-  const busLocationUrl = `https://map.naver.com/p/search/${encodeURIComponent(`버스타고 ${result.depName} ${result.arrName} 실시간 버스위치`)}`;
+  const busLocationUrl = `https://map.naver.com/p/search/${encodeURIComponent(`${providerName} ${result.depName} ${result.arrName} 실시간 버스위치`)}`;
   const rows = result.trips
     .map(
       (trip) => `
@@ -273,8 +252,8 @@ function renderBlogPost(result) {
 
   blogPost.innerHTML = `
     <p class="post-kicker">대중교통 타고 여행하기</p>
-    <h2 class="post-title">${result.depName}에서 ${result.arrName} 가는 버스 시간표</h2>
-    <p class="post-meta">${prettyDate(result.date)} 버스타고 조회 기준</p>
+    <h2 class="post-title">${result.depName}에서 ${result.arrName} 가는 ${providerName} 시간표</h2>
+    <p class="post-meta">${prettyDate(result.date)} ${providerName} 조회 기준</p>
 
     <div class="table-wrap">
       <table class="route-info-table">
@@ -283,7 +262,7 @@ function renderBlogPost(result) {
             <th>시간표 확인일</th>
             <td>${plainDate(result.date)}</td>
             <th>예매 사이트</th>
-            <td><a href="https://www.bustago.or.kr/newweb/kr/index.do" target="_blank" rel="noopener">버스타고</a></td>
+            <td><a href="${result.officialUrl || officialUrl}" target="_blank" rel="noopener">${providerName}</a></td>
           </tr>
           <tr>
             <th>출발지</th>
@@ -303,6 +282,7 @@ function renderBlogPost(result) {
       </table>
     </div>
 
+    ${result.notice ? `<p class="note">${result.notice}</p>` : ""}
     <div class="table-wrap">
       <table>
         <thead>
@@ -319,25 +299,32 @@ function renderBlogPost(result) {
           </tr>
         </thead>
         <tbody>
-          ${rows || `<tr><td colspan="9">조회된 배차가 없습니다.</td></tr>`}
+          ${rows || `<tr><td colspan="9">조회된 배차가 없습니다. 예매 사이트 링크에서 공식 조회를 확인해 주세요.</td></tr>`}
         </tbody>
       </table>
     </div>
-
-    <p class="note">요금과 소요시간은 버스타고 조회 시점 기준이며, 운행사 및 도로 사정에 따라 달라질 수 있습니다.</p>
   `;
+}
+
+function makePlainText(result) {
+  const rows = result.trips
+    .map(
+      (trip, index) =>
+        `${index + 1}. ${trip.departTime} / ${trip.departTerminal} → ${trip.arriveTerminal} / ${trip.company} / ${trip.busGrade || "-"} / 일반 ${money(trip.adultFare)} / 중고생 ${money(trip.studentFare)} / 아동 ${money(trip.childFare)} / 약 ${trip.duration}`
+    )
+    .join("\n");
+  return `${result.depName}에서 ${result.arrName} 가는 ${providerName} 시간표\n${prettyDate(result.date)} 기준\n\n${rows || "조회된 배차가 없습니다."}\n\n예매 사이트: ${result.officialUrl || officialUrl}`;
 }
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
-
   if (!state.dep || !state.arr || !dateInput.value) {
     setStatus("출발지와 도착지를 목록에서 선택하고 날짜를 입력해 주세요.", true);
     return;
   }
 
   try {
-    setStatus("버스타고에서 운행 정보를 조회하고 있습니다.");
+    setStatus(`${providerName} 운행 정보를 조회하고 있습니다.`);
     const date = dateInput.value.replaceAll("-", "");
     const params = new URLSearchParams({
       depTerId: state.dep.id,
@@ -346,7 +333,7 @@ form.addEventListener("submit", async (event) => {
       arrName: state.arr.name,
       date
     });
-    const result = await apiGet(`/api/search?${params.toString()}`);
+    const result = await apiGet(`/api/${provider}/search?${params.toString()}`);
     state.lastResult = result;
     renderBlogPost(result);
     copyTextBtn.disabled = false;
@@ -364,27 +351,27 @@ arrInput.addEventListener("input", searchArrivals);
 swapTerminalsBtn.addEventListener("click", swapTerminals);
 renderQuickTerminals(depQuick, "dep");
 renderQuickTerminals(arrQuick, "arr");
-document.addEventListener("click", (event) => {
-  if (!event.target.closest(".search-form")) closeSuggestions();
-});
-
 copyTextBtn.addEventListener("click", async () => {
   if (!state.lastResult) return;
   await navigator.clipboard.writeText(makePlainText(state.lastResult));
   setStatus("블로그 글 내용을 복사했습니다.");
 });
-
 copyHtmlBtn.addEventListener("click", async () => {
-  await navigator.clipboard.writeText(makePostHtml());
+  await navigator.clipboard.writeText(blogPost.innerHTML.trim());
   setStatus("블로그용 HTML을 복사했습니다.");
 });
 
 openNaverBtn.addEventListener("click", async () => {
   if (!state.lastResult) return;
-  await navigator.clipboard.writeText(makePostHtml());
+  await navigator.clipboard.writeText(blogPost.innerHTML.trim());
   window.open("https://blog.naver.com/PostWriteForm.naver?blogId=tint4", "_blank", "noopener");
   setStatus("본문 HTML을 복사하고 네이버 블로그 글쓰기 창을 열었습니다.");
 });
 
-
 printBtn.addEventListener("click", () => window.print());
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".search-form")) {
+    depList.classList.remove("open");
+    arrList.classList.remove("open");
+  }
+});

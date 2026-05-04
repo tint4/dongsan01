@@ -3,91 +3,34 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>버스타고 블로그 시간표 만들기</title>
+    <title>버스정보</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="app-shell">
-      <section class="search-panel" aria-label="버스 운행 정보 검색">
-        <div>
-          <p class="blog-name">대중교통 타고 여행하기</p>
-          <h1>버스타고 시간표 블로그 글 만들기</h1>
-        </div>
+    <main class="home-shell">
+      <header class="home-header">
+        <h1>버스정보</h1>
+      </header>
 
-        <form id="searchForm" class="search-form">
-          <div class="terminal-field">
-            <label>
-              <span>출발지</span>
-              <input id="depInput" type="text" autocomplete="off" placeholder="예: 동서울, 서울남부" required />
-            </label>
-            <div id="depList" class="suggestions"></div>
-            <div id="depQuick" class="quick-terminals" aria-label="주요 출발 터미널"></div>
-          </div>
+      <section class="bus-grid" aria-label="버스 정보 메뉴">
+        <a class="bus-grid-cell bus-grid-link" href="./bustago.html">버스타고 시외버스</a>
+        <a class="bus-grid-cell bus-grid-link" href="./tmoney-intercity.html">티머니 시외버스</a>
+        <a class="bus-grid-cell bus-grid-link" href="./kobus.html">티머니 고속버스</a>
+        <div class="bus-grid-cell empty-cell" aria-hidden="true"></div>
+        <div class="bus-grid-cell empty-cell" aria-hidden="true"></div>
 
-          <div class="terminal-field">
-            <label>
-              <span>도착지</span>
-              <input id="arrInput" type="text" autocomplete="off" placeholder="터미널명을 입력하거나 아래에서 선택" required />
-            </label>
-            <div id="arrList" class="suggestions"></div>
-            <div id="arrQuick" class="quick-terminals" aria-label="주요 도착 터미널"></div>
-          </div>
+        <a class="bus-grid-cell bus-grid-link" href="./airport-limousine.html">공항리무진</a>
+        <a class="bus-grid-cell bus-grid-link" href="./seoul-airbus.html">서울공항리무진</a>
+        <a class="bus-grid-cell bus-grid-link" href="./calt.html">한국도심공항</a>
+        <a class="bus-grid-cell bus-grid-link" href="./klimousine.html">K리무진</a>
+        <a class="bus-grid-cell bus-grid-link" href="./buspia.html">버스피아</a>
 
-          <label>
-            <span>가는 날짜</span>
-            <input id="dateInput" type="date" required />
-          </label>
-
-          <button type="submit">조회하고 글 만들기</button>
-        </form>
-        <p id="status" class="status" role="status"></p>
+        <div class="bus-grid-cell empty-cell" aria-hidden="true"></div>
+        <div class="bus-grid-cell empty-cell" aria-hidden="true"></div>
+        <div class="bus-grid-cell empty-cell" aria-hidden="true"></div>
+        <div class="bus-grid-cell empty-cell" aria-hidden="true"></div>
+        <div class="bus-grid-cell empty-cell" aria-hidden="true"></div>
       </section>
-
-      <section class="result-tools">
-        <button id="copyTextBtn" type="button" disabled>블로그 글 복사</button>
-        <button id="copyHtmlBtn" type="button" disabled>HTML 복사</button>
-        <button id="openNaverBtn" type="button" disabled>네이버 글쓰기 열기</button>
-        <button id="printBtn" type="button" disabled>인쇄</button>
-      </section>
-
-      <section class="naver-panel" aria-label="네이버 블로그 자동 게시">
-        <div>
-          <h2>네이버 자동 게시</h2>
-          <p>네이버 개발자 접근 토큰이 있으면 생성된 글을 블로그에 바로 등록할 수 있습니다.</p>
-        </div>
-        <label>
-          <span>Access Token</span>
-          <input id="naverTokenInput" type="password" autocomplete="off" placeholder="Bearer 없이 토큰만 입력" />
-        </label>
-        <label>
-          <span>카테고리 번호</span>
-          <input id="naverCategoryInput" type="text" inputmode="numeric" placeholder="선택 사항" />
-        </label>
-        <button id="publishNaverBtn" type="button" disabled>네이버 블로그에 자동 게시</button>
-      </section>
-
-      <section class="map-panel" aria-label="네이버 지도 경로 그림">
-        <div>
-          <h2>네이버 지도 경로 그림</h2>
-          <p>출발지와 도착지를 선택한 뒤 네이버 지도 키를 입력하면 클릭해서 받을 수 있는 PNG 그림을 만듭니다.</p>
-        </div>
-        <label>
-          <span>Map Client ID</span>
-          <input id="mapClientIdInput" type="text" autocomplete="off" placeholder="NCP Client ID" />
-        </label>
-        <label>
-          <span>Map Client Secret</span>
-          <input id="mapClientSecretInput" type="password" autocomplete="off" placeholder="NCP Client Secret" />
-        </label>
-        <button id="makeMapBtn" type="button">경로 그림 만들기</button>
-        <canvas id="routeCanvas" class="route-canvas" width="900" height="520" title="클릭하면 PNG로 다운로드됩니다."></canvas>
-      </section>
-
-      <article id="blogPost" class="blog-post">
-        <p class="empty">출발지, 도착지, 날짜를 선택하면 블로그용 운행 정보가 여기에 만들어집니다.</p>
-      </article>
     </main>
-
-    <script src="./app.js"></script>
   </body>
 </html>

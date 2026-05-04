@@ -1,0 +1,66 @@
+﻿<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>티머니 고속버스 시간표 블로그 글 만들기</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-provider="kobus" data-provider-name="티머니 고속버스" data-official-url="https://www.kobus.co.kr/main.do">
+    <main class="app-shell">
+      <nav class="page-nav" aria-label="페이지 이동">
+        <a class="home-back-link" href="./index.html">메인페이지로 돌아가기</a>
+      </nav>
+
+      <section class="search-panel" aria-label="티머니 고속버스 운행 정보 검색">
+        <div>
+          <p class="blog-name">대중교통 타고 여행하기</p>
+          <h1>티머니 고속버스 시간표 블로그 글 만들기</h1>
+        </div>
+
+        <form id="searchForm" class="search-form">
+          <div class="terminal-field">
+            <label>
+              <span>출발지</span>
+              <input id="depInput" type="text" autocomplete="off" placeholder="예: 서울경부, 센트럴시티" required />
+            </label>
+            <div id="depList" class="suggestions"></div>
+            <div id="depQuick" class="quick-terminals" aria-label="주요 출발 터미널"></div>
+          </div>
+
+          <button id="swapTerminalsBtn" class="swap-terminals" type="button">출발/도착 바꾸기</button>
+
+          <div class="terminal-field">
+            <label>
+              <span>도착지</span>
+              <input id="arrInput" type="text" autocomplete="off" placeholder="도착 터미널명 입력" required disabled />
+            </label>
+            <div id="arrList" class="suggestions"></div>
+            <div id="arrQuick" class="quick-terminals" aria-label="주요 도착 터미널"></div>
+          </div>
+
+          <label>
+            <span>가는 날짜</span>
+            <input id="dateInput" type="date" required />
+          </label>
+
+          <button type="submit">조회하고 글 만들기</button>
+        </form>
+        <p id="status" class="status" role="status"></p>
+      </section>
+
+      <section class="result-tools">
+        <button id="copyTextBtn" type="button" disabled>블로그 글 복사</button>
+        <button id="copyHtmlBtn" type="button" disabled>HTML 복사</button>
+        <button id="openNaverBtn" type="button" disabled>네이버 글쓰기 열기</button>
+        <button id="printBtn" type="button" disabled>인쇄</button>
+      </section>
+
+      <article id="blogPost" class="blog-post">
+        <p class="empty">출발지, 도착지, 날짜를 선택하면 블로그용 운행 정보가 여기에 만들어집니다.</p>
+      </article>
+    </main>
+
+    <script src="./provider-app.js"></script>
+  </body>
+</html>

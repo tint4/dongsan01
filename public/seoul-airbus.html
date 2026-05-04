@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>서울공항리무진 시간표 만들기</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <nav class="page-nav" aria-label="페이지 이동">
+        <a class="home-back-link" href="./index.html">메인페이지로 돌아가기</a>
+      </nav>
+
+      <section class="search-panel" aria-label="서울공항리무진 시간표 검색">
+        <div>
+          <p class="blog-name">대중교통 타고 여행하기</p>
+          <h1>서울공항리무진 시간표 만들기</h1>
+        </div>
+
+        <form id="airportForm" class="buspia-search-form">
+          <label>
+            <span>버스번호</span>
+            <input id="busNoInput" type="text" autocomplete="off" placeholder="예: 6009, 6020, 6300" required />
+          </label>
+          <button type="submit">시간표 검색</button>
+        </form>
+        <p id="status" class="status" role="status"></p>
+      </section>
+
+      <section class="buspia-quick-panel" aria-label="서울공항리무진 버스번호 빠른 선택">
+        <div id="routeQuickGrid" class="route-quick-grid"></div>
+      </section>
+
+      <section class="result-tools">
+        <button id="openNaverBtn" type="button" disabled>네이버 글쓰기 열기</button>
+      </section>
+
+      <article id="blogPost" class="blog-post">
+        <p class="empty">버스번호를 입력하면 공항방면과 시내방면 시간표가 만들어집니다.</p>
+      </article>
+    </main>
+
+    <script src="./seoul-airbus-app.js"></script>
+  </body>
+</html>
