@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>검빛 점수표 만들기</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <nav class="page-nav" aria-label="페이지 이동">
+        <a class="home-back-link" href="./index.html">메인페이지로 돌아가기</a>
+      </nav>
+
+      <section class="search-panel" aria-label="검빛 점수표">
+        <div>
+          <p class="blog-name">검빛</p>
+          <h1 id="pageTitle">검빛 점수표 만들기</h1>
+        </div>
+        <p id="status" class="status" role="status">검빛 출마표를 불러오고 있습니다.</p>
+      </section>
+
+      <article id="gumvitResult" class="blog-post">
+        <p class="empty">점수표를 만드는 중입니다.</p>
+      </article>
+    </main>
+
+    <script src="./gumvit-app.js"></script>
+  </body>
+</html>

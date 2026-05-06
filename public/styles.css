@@ -107,6 +107,32 @@ select {
   background: #fbfdfc;
 }
 
+.home-section {
+  margin-top: 34px;
+}
+
+.home-section h2 {
+  margin: 0 0 14px;
+  font-size: 26px;
+  letter-spacing: 0;
+}
+
+.gumvit-grid .bus-grid-cell {
+  min-height: 92px;
+}
+
+.gumvit-grade-A td {
+  background: #ffe8e8;
+}
+
+.gumvit-grade-B td {
+  background: #e6f6ff;
+}
+
+.gumvit-grade-C td {
+  background: #f1e9ff;
+}
+
 .search-panel {
   display: grid;
   grid-template-columns: 1fr;

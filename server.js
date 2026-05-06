@@ -10,6 +10,7 @@ const BUSTAGO_ORIGIN = "https://www.bustago.or.kr";
 const TMONEY_INTERCITY_ORIGIN = "https://intercitybus.tmoney.co.kr";
 const KOBUS_ORIGIN = "https://www.kobus.co.kr";
 const TAGO_EXP_BUS_ORIGIN = "https://apis.data.go.kr/1613000/ExpBusInfo";
+const GUMVIT_ORIGIN = "https://www.gumvit.com";
 const BUSPIA_ORIGIN = "https://www.buspia.co.kr";
 const NEWSMILE_ORIGIN = "http://www.newsmilebus.com";
 const JEJU_BUS_ORIGIN = "https://bus.jeju.go.kr";
@@ -265,6 +266,121 @@ function normalizeKobusApiTrip(item, depName, arrName) {
     route: item.routeId || item.routeid || "",
     raw: item
   };
+}
+
+async function fetchGumvitPage(pathname, params = {}) {
+  const url = new URL(pathname, GUMVIT_ORIGIN);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, value);
+  });
+  const response = await fetch(url, { headers: { "user-agent": USER_AGENT } });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`검빛 응답 오류 ${response.status}: ${text.slice(0, 200)}`);
+  return text;
+}
+
+function parseGumvitRaceLinks(html, loc, type) {
+  const seen = new Set();
+  return [...html.matchAll(/chulma_detail\.html\?([^"']*race_no=(\d+)[^"']*)/g)]
+    .map((match) => {
+      const params = new URLSearchParams(match[1].replace(/&amp;/g, "&"));
+      const raceNo = Number(params.get("race_no") || match[2]);
+      const date = params.get("m_date") || "";
+      const key = `${date}-${raceNo}`;
+      if (!raceNo || seen.has(key)) return null;
+      seen.add(key);
+      return { raceNo, date, loc, type };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.raceNo - b.raceNo);
+}
+
+function parseGumvitDetail(html, raceNo) {
+  const scoreWeights = [3, 1, 1, 0, 2];
+  const horseMeta = new Map();
+  const entrySection = (html.match(/<td[^>]*>\s*마번\s*<\/td>[\s\S]*?<td[^>]*>\s*조교\s*<\/td>[\s\S]*?<\/table>/) || [])[0] || "";
+  [...entrySection.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)]
+    .map((match) => match[1].replace(/<!--[\s\S]*?-->/g, ""))
+    .filter((row) => /goHorse\(/.test(row))
+    .forEach((row) => {
+      const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((match) => htmlText(match[1]));
+      const horseName = htmlText((row.match(/goHorse\([^)]*\)[^>]*>([\s\S]*?)<\/a>/i) || [])[1] || cells[2] || "");
+      const jockeyName = htmlText((row.match(/goJockey\([^)]*\)[^>]*>([\s\S]*?)<\/a>/i) || [])[1] || cells[8] || "");
+      const cycleText = cells.find((cell) => /\d+\s*주/.test(cell)) || "";
+      const cycleWeeks = Number((cycleText.match(/\d+/) || [])[0] || 0);
+      if (horseName) horseMeta.set(horseName, { jockeyName, cycleWeeks });
+    });
+
+  const section = (html.match(/검빛전문위원[\s\S]*?<\/table>/) || [])[0] || "";
+  const rows = [...section.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)]
+    .map((match) => match[1])
+    .filter((row) => /goHorse\(/.test(row));
+
+  const horses = rows.map((row) => {
+    const cleanRow = row.replace(/<!--[\s\S]*?-->/g, "");
+    const cells = [...cleanRow.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((match) => htmlText(match[1]));
+    const horseName = htmlText((cleanRow.match(/class=["']name["'][^>]*>([\s\S]*?)<\/a>/i) || [])[1] || cells[1] || "");
+    const horseNo = Number(cells[0] || 0);
+    const expertCounts = cells.slice(5, 10).map((value) => Number(String(value).replace(/\D/g, "")) || 0);
+    const integratedCounts = cells.slice(11, 16).map((value) => Number(String(value).replace(/\D/g, "")) || 0);
+    const score = scoreWeights.reduce((sum, weight, index) => {
+      return sum + weight * ((expertCounts[index] || 0) + (integratedCounts[index] || 0));
+    }, 0);
+    const meta = horseMeta.get(horseName) || {};
+    return {
+      horseNo,
+      horseName,
+      jockeyName: meta.jockeyName || "",
+      cycleWeeks: meta.cycleWeeks || 0,
+      note: meta.cycleWeeks > 10 ? "10주이상" : "",
+      expertCounts,
+      integratedCounts,
+      score
+    };
+  }).filter((horse) => horse.horseName);
+
+  const ranked = horses
+    .sort((a, b) => b.score - a.score || a.horseNo - b.horseNo)
+    .map((horse, index) => ({
+      ...horse,
+      rank: index + 1,
+      grade: index < 4 ? "A" : index < 8 ? "B" : "C"
+    }));
+
+  return { raceNo, horses: ranked };
+}
+
+async function handleGumvitScores(req, res) {
+  try {
+    const loc = String(req.searchParams.get("loc") || "S").trim().toUpperCase();
+    const type = String(req.searchParams.get("type") || "6").replace(/\D/g, "") || "6";
+    const listHtml = await fetchGumvitPage("/statv40/chulma.html", { type, loc });
+    const races = parseGumvitRaceLinks(listHtml, loc, type);
+    if (!races.length) return sendJson(res, 404, { error: "검빛 출마표 경주 목록을 찾지 못했습니다." });
+
+    const results = await Promise.all(races.map(async (race) => {
+      const detailHtml = await fetchGumvitPage("/statv40/chulma_detail.html", {
+        m_date: race.date,
+        race_no: race.raceNo,
+        type,
+        loc
+      });
+      return { ...race, ...parseGumvitDetail(detailHtml, race.raceNo) };
+    }));
+
+    sendJson(res, 200, {
+      source: "검빛",
+      officialUrl: `${GUMVIT_ORIGIN}/statv40/chulma.html?type=${encodeURIComponent(type)}&loc=${encodeURIComponent(loc)}`,
+      loc,
+      type,
+      searchedAt: new Date().toISOString(),
+      date: races[0].date || "",
+      weights: { "★": 3, "◎": 1, "○": 1, "▲": 0, "※": 2 },
+      races: results
+    });
+  } catch (error) {
+    sendJson(res, 502, { error: error.message });
+  }
 }
 
 function absoluteBuspiaUrl(value) {
@@ -2171,6 +2287,7 @@ const server = http.createServer(async (request, response) => {
   if (url.pathname === "/api/kobus/terminals") return handleKobusTerminals(req, response);
   if (url.pathname === "/api/kobus/destinations") return handleKobusDestinations(req, response);
   if (url.pathname === "/api/kobus/search") return handleKobusPublicApiSearch(req, response);
+  if (url.pathname === "/api/gumvit/scores") return handleGumvitScores(req, response);
   if (url.pathname === "/api/buspia/search") return handleBuspiaSearch(req, response);
   if (url.pathname === "/api/buspia/download") return handleBuspiaDownload(req, response);
   if (url.pathname === "/api/newsmile/search") return handleNewsmileSearch(req, response);
