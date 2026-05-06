@@ -39,6 +39,11 @@ select {
   margin: 0 0 12px;
 }
 
+.bottom-page-nav {
+  justify-content: center;
+  margin: 28px 0 0;
+}
+
 .home-back-link {
   display: inline-flex;
   align-items: center;
@@ -113,7 +118,7 @@ select {
 
 .home-section h2 {
   margin: 0 0 14px;
-  font-size: 26px;
+  font-size: 34px;
   letter-spacing: 0;
 }
 
@@ -131,6 +136,16 @@ select {
 
 .gumvit-grade-C td {
   background: #f1e9ff;
+}
+
+.gumvit-post,
+.gumvit-post td,
+.gumvit-post th,
+.gumvit-post .post-kicker,
+.gumvit-post .post-title,
+.gumvit-post .post-meta,
+.gumvit-post .direction-title {
+  text-align: center;
 }
 
 .search-panel {

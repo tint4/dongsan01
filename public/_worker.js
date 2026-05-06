@@ -285,12 +285,15 @@ function parseGumvitDetail(html, raceNo) {
       return sum + weight * ((expertCounts[index] || 0) + (integratedCounts[index] || 0));
     }, 0);
     const meta = horseMeta.get(horseName) || {};
+    const notes = [];
+    if (meta.cycleWeeks > 10) notes.push("10주이상");
+    if ((expertCounts[4] || 0) + (integratedCounts[4] || 0) >= 4) notes.push("복병");
     return {
       horseNo,
       horseName,
       jockeyName: meta.jockeyName || "",
       cycleWeeks: meta.cycleWeeks || 0,
-      note: meta.cycleWeeks > 10 ? "10주이상" : "",
+      note: notes.join(", "),
       expertCounts,
       integratedCounts,
       score
