@@ -21,6 +21,9 @@ const copyTextBtn = document.querySelector("#copyTextBtn");
 const copyHtmlBtn = document.querySelector("#copyHtmlBtn");
 const openNaverBtn = document.querySelector("#openNaverBtn");
 const printBtn = document.querySelector("#printBtn");
+const depSelect = createTerminalSelect(depInput, "전체 출발지 선택");
+const arrSelect = createTerminalSelect(arrInput, "전체 도착지 선택");
+const terminalSelectState = { depOptions: [], arrOptions: [] };
 
 function defaultTravelDate() {
   const date = new Date();
@@ -87,6 +90,68 @@ function debounce(callback, wait = 250) {
   };
 }
 
+function createTerminalSelect(input, placeholder) {
+  const select = document.createElement("select");
+  select.className = "terminal-select";
+  select.innerHTML = `<option value="">${placeholder}</option>`;
+  input.closest("label").after(select);
+  return select;
+}
+
+function terminalLabel(terminal) {
+  return `${terminal.name}${terminal.area ? ` (${terminal.area})` : ""}`;
+}
+
+function renderTerminalSelect(select, terminals, placeholder) {
+  select.innerHTML = `<option value="">${placeholder}</option>`;
+  terminals.forEach((terminal) => {
+    const option = document.createElement("option");
+    option.value = terminal.id;
+    option.textContent = terminalLabel(terminal);
+    select.appendChild(option);
+  });
+}
+
+function setTerminalSelectValue(select, terminal) {
+  if (!terminal) {
+    select.value = "";
+    return;
+  }
+  if (![...select.options].some((option) => option.value === terminal.id)) {
+    const option = document.createElement("option");
+    option.value = terminal.id;
+    option.textContent = terminalLabel(terminal);
+    select.appendChild(option);
+  }
+  select.value = terminal.id;
+}
+
+async function loadDepartureSelectOptions() {
+  try {
+    const data = await apiGet(`/api/${provider}/terminals?all=1&q=`);
+    terminalSelectState.depOptions = data.terminals || [];
+    renderTerminalSelect(depSelect, terminalSelectState.depOptions, "전체 출발지 선택");
+  } catch (error) {
+    renderTerminalSelect(depSelect, [], "전체 출발지를 불러오지 못했습니다");
+  }
+}
+
+async function loadArrivalSelectOptions(depTerminal = state.dep) {
+  arrSelect.disabled = !depTerminal;
+  terminalSelectState.arrOptions = [];
+  renderTerminalSelect(arrSelect, [], depTerminal ? "전체 도착지 불러오는 중" : "출발지를 먼저 선택");
+  if (!depTerminal) return;
+
+  try {
+    const data = await apiGet(`/api/${provider}/destinations?depTerId=${encodeURIComponent(depTerminal.id)}&all=1&q=`);
+    terminalSelectState.arrOptions = data.destinations || [];
+    renderTerminalSelect(arrSelect, terminalSelectState.arrOptions, "전체 도착지 선택");
+    setTerminalSelectValue(arrSelect, state.arr);
+  } catch (error) {
+    renderTerminalSelect(arrSelect, [], "전체 도착지를 불러오지 못했습니다");
+  }
+}
+
 function renderSuggestions(target, items, onPick) {
   target.innerHTML = "";
   if (!items.length) {
@@ -126,6 +191,9 @@ function syncTerminalFields() {
   depInput.value = state.dep ? state.dep.name : "";
   arrInput.value = state.arr ? state.arr.name : "";
   arrInput.disabled = !state.dep;
+  arrSelect.disabled = !state.dep;
+  setTerminalSelectValue(depSelect, state.dep);
+  setTerminalSelectValue(arrSelect, state.arr);
   markQuickSelection("dep", state.dep);
   markQuickSelection("arr", state.arr);
 }
@@ -140,6 +208,8 @@ function selectTerminal(kind, terminal) {
     depList.classList.remove("open");
     markQuickSelection("dep", terminal);
     markQuickSelection("arr", null);
+    setTerminalSelectValue(depSelect, terminal);
+    loadArrivalSelectOptions(terminal);
     setStatus(`${terminal.name} 출발지가 선택되었습니다.`);
     return;
   }
@@ -148,6 +218,7 @@ function selectTerminal(kind, terminal) {
   arrInput.value = terminal.name;
   arrList.classList.remove("open");
   markQuickSelection("arr", terminal);
+  setTerminalSelectValue(arrSelect, terminal);
   setStatus(`${terminal.name} 도착지가 선택되었습니다.`);
 }
 
@@ -158,6 +229,7 @@ function swapTerminals() {
   state.arr = nextArr;
   syncTerminalFields();
   closeSuggestions();
+  if (state.dep) loadArrivalSelectOptions(state.dep);
   resetGeneratedPost();
   setStatus(state.dep && state.arr ? "출발지와 도착지를 바꿨습니다." : "출발지와 도착지를 바꾸려면 두 터미널을 먼저 선택해 주세요.", !state.dep || !state.arr);
 }
@@ -190,6 +262,9 @@ const searchDepartures = debounce(async () => {
   state.arr = null;
   arrInput.value = "";
   arrInput.disabled = true;
+  arrSelect.disabled = true;
+  setTerminalSelectValue(depSelect, null);
+  renderTerminalSelect(arrSelect, [], "출발지를 먼저 선택");
   markQuickSelection("dep", null);
   markQuickSelection("arr", null);
   if (keyword.length < 1) return depList.classList.remove("open");
@@ -206,6 +281,7 @@ const searchDepartures = debounce(async () => {
 const searchArrivals = debounce(async () => {
   const keyword = arrInput.value.trim();
   state.arr = null;
+  setTerminalSelectValue(arrSelect, null);
   markQuickSelection("arr", null);
   if (!state.dep || keyword.length < 1) return arrList.classList.remove("open");
 
@@ -356,6 +432,16 @@ arrInput.addEventListener("input", searchArrivals);
 swapTerminalsBtn.addEventListener("click", swapTerminals);
 renderQuickTerminals(depQuick, "dep");
 renderQuickTerminals(arrQuick, "arr");
+arrSelect.disabled = true;
+loadDepartureSelectOptions();
+depSelect.addEventListener("change", () => {
+  const terminal = terminalSelectState.depOptions.find((item) => item.id === depSelect.value);
+  if (terminal) selectTerminal("dep", terminal);
+});
+arrSelect.addEventListener("change", () => {
+  const terminal = terminalSelectState.arrOptions.find((item) => item.id === arrSelect.value);
+  if (terminal) selectTerminal("arr", terminal);
+});
 copyTextBtn.addEventListener("click", async () => {
   if (!state.lastResult) return;
   await navigator.clipboard.writeText(makePlainText(state.lastResult));

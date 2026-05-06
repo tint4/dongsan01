@@ -797,16 +797,17 @@ function sendJson(res, statusCode, payload) {
 async function handleTerminals(req, res) {
   try {
     const keyword = String(req.searchParams.get("q") || "").trim();
-    if (!keyword) return sendJson(res, 200, { terminals: [] });
+    const includeAll = req.searchParams.get("all") === "1";
+    if (!keyword && !includeAll) return sendJson(res, 200, { terminals: [] });
 
     const data = await bustagoFetch("/newweb/kr/common/terminalListAjax.do", {
       area: "",
       searchTerminalNm: keyword
     });
     const terminals = (data.terminalList || [])
-      .filter((item) => terminalMatches(item, keyword))
+      .filter((item) => includeAll || terminalMatches(item, keyword))
       .map(normalizeTerminal)
-      .slice(0, 30);
+      .slice(0, includeAll ? 1000 : 30);
 
     sendJson(res, 200, { terminals });
   } catch (error) {
@@ -818,6 +819,7 @@ async function handleDestinations(req, res) {
   try {
     const depTerId = String(req.searchParams.get("depTerId") || "").trim();
     const keyword = String(req.searchParams.get("q") || "").trim();
+    const includeAll = req.searchParams.get("all") === "1";
     if (!depTerId) return sendJson(res, 400, { error: "출발지 터미널 코드가 필요합니다." });
 
     const data = await bustagoFetch("/newweb/kr/common/terminalEndListAjax.do", {
@@ -828,7 +830,7 @@ async function handleDestinations(req, res) {
     const destinations = (data.terminalEndList || [])
       .filter((item) => !keyword || terminalMatches(item, keyword))
       .map(normalizeTerminal)
-      .slice(0, 50);
+      .slice(0, includeAll ? 1000 : 50);
 
     sendJson(res, 200, { destinations });
   } catch (error) {
@@ -879,7 +881,8 @@ async function handleSearch(req, res) {
 async function handleTmoneyIntercityTerminals(req, res) {
   try {
     const keyword = String(req.searchParams.get("q") || "").trim();
-    if (!keyword) return sendJson(res, 200, { terminals: [] });
+    const includeAll = req.searchParams.get("all") === "1";
+    if (!keyword && !includeAll) return sendJson(res, 200, { terminals: [] });
     const text = await postForm(
       TMONEY_INTERCITY_ORIGIN,
       "/otck/readTrmlList.do",
@@ -887,7 +890,7 @@ async function handleTmoneyIntercityTerminals(req, res) {
       "/main.do"
     );
     const data = JSON.parse(text);
-    sendJson(res, 200, { terminals: data.map(normalizeTmoneyTerminal).slice(0, 30) });
+    sendJson(res, 200, { terminals: data.map(normalizeTmoneyTerminal).slice(0, includeAll ? 1000 : 30) });
   } catch (error) {
     sendJson(res, 502, { error: error.message });
   }
@@ -897,6 +900,7 @@ async function handleTmoneyIntercityDestinations(req, res) {
   try {
     const depTerId = String(req.searchParams.get("depTerId") || "").trim();
     const keyword = String(req.searchParams.get("q") || "").trim();
+    const includeAll = req.searchParams.get("all") === "1";
     if (!depTerId) return sendJson(res, 400, { error: "출발지 터미널 코드가 필요합니다." });
     const text = await postForm(
       TMONEY_INTERCITY_ORIGIN,
@@ -905,7 +909,7 @@ async function handleTmoneyIntercityDestinations(req, res) {
       "/main.do"
     );
     const data = JSON.parse(text);
-    sendJson(res, 200, { destinations: data.map(normalizeTmoneyTerminal).slice(0, 50) });
+    sendJson(res, 200, { destinations: data.map(normalizeTmoneyTerminal).slice(0, includeAll ? 1000 : 50) });
   } catch (error) {
     sendJson(res, 502, { error: error.message });
   }
@@ -953,13 +957,14 @@ async function handleTmoneyIntercitySearch(req, res) {
 async function handleKobusTerminals(req, res) {
   try {
     const keyword = String(req.searchParams.get("q") || "").trim().toLowerCase();
+    const includeAll = req.searchParams.get("all") === "1";
     const routes = await getKobusRoutes();
     const map = new Map();
     for (const route of routes) {
       if (keyword && !String(`${route.deprNm} ${route.deprArea}`).toLowerCase().includes(keyword)) continue;
       map.set(route.deprCd, { id: route.deprCd, name: route.deprNm, area: route.deprArea || "" });
     }
-    sendJson(res, 200, { terminals: [...map.values()].slice(0, 30) });
+    sendJson(res, 200, { terminals: [...map.values()].slice(0, includeAll ? 1000 : 30) });
   } catch (error) {
     sendJson(res, 502, { error: error.message });
   }
@@ -969,6 +974,7 @@ async function handleKobusDestinations(req, res) {
   try {
     const depTerId = String(req.searchParams.get("depTerId") || "").trim();
     const keyword = String(req.searchParams.get("q") || "").trim().toLowerCase();
+    const includeAll = req.searchParams.get("all") === "1";
     const routes = await getKobusRoutes();
     const map = new Map();
     for (const route of routes) {
@@ -981,7 +987,7 @@ async function handleKobusDestinations(req, res) {
         durationMinutes: Number(route.takeTime || 0)
       });
     }
-    sendJson(res, 200, { destinations: [...map.values()].slice(0, 50) });
+    sendJson(res, 200, { destinations: [...map.values()].slice(0, includeAll ? 1000 : 50) });
   } catch (error) {
     sendJson(res, 502, { error: error.message });
   }
