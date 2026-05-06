@@ -15,6 +15,7 @@ const KLIMOUSINE_ORIGIN = "https://klimousine.com";
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
 const Buffer = { from(value) { return value; } };
 const path = { extname(value) { const clean = String(value || "").split(/[?#]/)[0]; const index = clean.lastIndexOf("."); return index >= 0 ? clean.slice(index) : ""; } };
+let kobusRouteCache = null;
 
 function compactCookie(headers) {
   const raw = headers.get("set-cookie");
