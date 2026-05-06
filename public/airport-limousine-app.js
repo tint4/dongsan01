@@ -64,7 +64,7 @@ function renderScheduleSection(title, rows) {
 function renderBlogPost(result) {
   const searchedDate = plainDateFromIso(result.searchedAt);
   const majorStops = result.majorStops.length ? result.majorStops.join(", ") : "-";
-  const busLocationUrl = `https://map.naver.com/p/search/${encodeURIComponent(`${result.company} ${result.busNo}번 버스`)}`;
+  const busLocationUrl = `https://map.naver.com/p/search/${encodeURIComponent(result.busNo)}`;
   blogPost.innerHTML = `
     <p class="post-kicker">대중교통 타고 여행하기</p>
     <h2 class="post-title">공항리무진 ${result.busNo}번 시간표</h2>

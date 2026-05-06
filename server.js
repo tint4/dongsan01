@@ -9,6 +9,7 @@ const PORT = process.env.PORT || 3000;
 const BUSTAGO_ORIGIN = "https://www.bustago.or.kr";
 const TMONEY_INTERCITY_ORIGIN = "https://intercitybus.tmoney.co.kr";
 const KOBUS_ORIGIN = "https://www.kobus.co.kr";
+const TAGO_EXP_BUS_ORIGIN = "https://apis.data.go.kr/1613000/ExpBusInfo";
 const BUSPIA_ORIGIN = "https://www.buspia.co.kr";
 const NEWSMILE_ORIGIN = "http://www.newsmilebus.com";
 const JEJU_BUS_ORIGIN = "https://bus.jeju.go.kr";
@@ -190,6 +191,79 @@ function normalizeTmoneyTerminal(item) {
     id: item.trml_Cd,
     name: item.trml_Nm,
     area: item.cty_Bus_Area_Nm || item.cty_Bus_Area_Cd || ""
+  };
+}
+
+function encodeDataGoKrServiceKey(serviceKey) {
+  const key = String(serviceKey || "").trim();
+  return key.includes("%") ? key : encodeURIComponent(key);
+}
+
+async function fetchDataGoKrJson(origin, endpoint, serviceKey, params = {}) {
+  const query = new URLSearchParams({ ...params, _type: "json" });
+  const url = `${origin}${endpoint}?serviceKey=${encodeDataGoKrServiceKey(serviceKey)}&${query.toString()}`;
+  const response = await fetch(url, { headers: { "user-agent": USER_AGENT } });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`공공데이터 API 응답 오류 ${response.status}: ${text.slice(0, 200)}`);
+  try {
+    const data = JSON.parse(text);
+    const header = data?.response?.header;
+    if (header && header.resultCode && header.resultCode !== "00") {
+      throw new Error(header.resultMsg || `공공데이터 API 오류 ${header.resultCode}`);
+    }
+    return data;
+  } catch (error) {
+    if (error.message && !error.message.includes("Unexpected")) throw error;
+    throw new Error(`공공데이터 API 응답을 해석할 수 없습니다: ${htmlText(text).slice(0, 200)}`);
+  }
+}
+
+function getDataGoKrServiceKey(req) {
+  return String(process.env.DATA_GO_KR_SERVICE_KEY || req.searchParams.get("serviceKey") || "").trim();
+}
+
+function toTagoExpressTerminalId(value) {
+  const id = String(value || "").trim();
+  if (!id) return "";
+  return id.startsWith("NAEK") ? id : `NAEK${id.padStart(3, "0")}`;
+}
+
+function normalizeArray(value) {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function formatTagoDateTime(value) {
+  const raw = String(value || "").replace(/\D/g, "");
+  if (raw.length < 12) return "";
+  return `${raw.slice(8, 10)}:${raw.slice(10, 12)}`;
+}
+
+function formatTagoDuration(depValue, arrValue) {
+  const dep = String(depValue || "").replace(/\D/g, "");
+  const arr = String(arrValue || "").replace(/\D/g, "");
+  if (dep.length < 12 || arr.length < 12) return "-";
+  const depDate = new Date(`${dep.slice(0, 4)}-${dep.slice(4, 6)}-${dep.slice(6, 8)}T${dep.slice(8, 10)}:${dep.slice(10, 12)}:00+09:00`);
+  const arrDate = new Date(`${arr.slice(0, 4)}-${arr.slice(4, 6)}-${arr.slice(6, 8)}T${arr.slice(8, 10)}:${arr.slice(10, 12)}:00+09:00`);
+  const minutes = Math.round((arrDate - depDate) / 60000);
+  return minutes > 0 ? formatDuration(minutes) : "-";
+}
+
+function normalizeKobusApiTrip(item, depName, arrName) {
+  const depPlandTime = item.depPlandTime || item.depplandtime || "";
+  const arrPlandTime = item.arrPlandTime || item.arrplandtime || "";
+  return {
+    departTime: formatTagoDateTime(depPlandTime),
+    departTerminal: item.depPlaceNm || item.depplacenm || depName,
+    arriveTerminal: item.arrPlaceNm || item.arrplacenm || arrName,
+    company: item.companyNm || item.comName || item.transitNm || "고속버스",
+    busGrade: item.gradeNm || item.gradenm || item.busGradeNm || "",
+    adultFare: Number(item.charge || item.adultCharge || item.fare || 0),
+    studentFare: Number(item.studentCharge || 0),
+    childFare: Number(item.childCharge || 0),
+    duration: formatTagoDuration(depPlandTime, arrPlandTime),
+    route: item.routeId || item.routeid || "",
+    raw: item
   };
 }
 
@@ -1193,6 +1267,51 @@ async function handleKobusSearch(req, res) {
   });
 }
 
+async function handleKobusPublicApiSearch(req, res) {
+  try {
+    const depTerId = String(req.searchParams.get("depTerId") || "").trim();
+    const arrTerId = String(req.searchParams.get("arrTerId") || "").trim();
+    const date = String(req.searchParams.get("date") || "").replace(/\D/g, "");
+    const depName = String(req.searchParams.get("depName") || "");
+    const arrName = String(req.searchParams.get("arrName") || "");
+    const serviceKey = getDataGoKrServiceKey(req);
+
+    if (!depTerId || !arrTerId || !/^\d{8}$/.test(date)) {
+      return sendJson(res, 400, { error: "출발지, 도착지, 날짜를 모두 선택해 주세요." });
+    }
+    if (!serviceKey) {
+      return sendJson(res, 400, {
+        error: "티머니 고속버스 시간표는 공공데이터포털 서비스키가 필요합니다. DATA_GO_KR_SERVICE_KEY 환경변수로 설정하거나 화면의 공공데이터 API 키 칸에 입력해 주세요."
+      });
+    }
+
+    const data = await fetchDataGoKrJson(TAGO_EXP_BUS_ORIGIN, "/GetStrtpntAlocFndExpbusInfo", serviceKey, {
+      pageNo: "1",
+      numOfRows: "200",
+      depTerminalId: toTagoExpressTerminalId(depTerId),
+      arrTerminalId: toTagoExpressTerminalId(arrTerId),
+      depPlandTime: date
+    });
+    const items = normalizeArray(data?.response?.body?.items?.item);
+    const trips = items.map((item) => normalizeKobusApiTrip(item, depName, arrName));
+
+    sendJson(res, 200, {
+      source: "코버스",
+      officialUrl: "https://www.kobus.co.kr/main.do",
+      searchedAt: new Date().toISOString(),
+      date,
+      depTerId,
+      arrTerId,
+      depName,
+      arrName,
+      trips,
+      notice: "공공데이터포털 국토교통부(TAGO) 고속버스정보 API 기준으로 조회했습니다. 중고생·아동 요금은 API에서 제공될 때만 표시됩니다."
+    });
+  } catch (error) {
+    sendJson(res, 502, { error: error.message });
+  }
+}
+
 async function handleBuspiaSearch(req, res) {
   try {
     const keyword = String(req.searchParams.get("q") || "").trim().toLowerCase();
@@ -2045,7 +2164,7 @@ const server = http.createServer(async (request, response) => {
   if (url.pathname === "/api/tmoney-intercity/search") return handleTmoneyIntercitySearch(req, response);
   if (url.pathname === "/api/kobus/terminals") return handleKobusTerminals(req, response);
   if (url.pathname === "/api/kobus/destinations") return handleKobusDestinations(req, response);
-  if (url.pathname === "/api/kobus/search") return handleKobusSearch(req, response);
+  if (url.pathname === "/api/kobus/search") return handleKobusPublicApiSearch(req, response);
   if (url.pathname === "/api/buspia/search") return handleBuspiaSearch(req, response);
   if (url.pathname === "/api/buspia/download") return handleBuspiaDownload(req, response);
   if (url.pathname === "/api/newsmile/search") return handleNewsmileSearch(req, response);

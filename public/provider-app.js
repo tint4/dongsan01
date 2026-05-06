@@ -3,9 +3,12 @@
 const provider = document.body.dataset.provider;
 const providerName = document.body.dataset.providerName;
 const officialUrl = document.body.dataset.officialUrl;
+const defaultDateOffset = Number(document.body.dataset.defaultDateOffset || 3);
+const bookingSiteName = document.body.dataset.bookingSiteName || providerName;
 const depInput = document.querySelector("#depInput");
 const arrInput = document.querySelector("#arrInput");
 const dateInput = document.querySelector("#dateInput");
+const serviceKeyInput = document.querySelector("#serviceKeyInput");
 const swapTerminalsBtn = document.querySelector("#swapTerminalsBtn");
 const depList = document.querySelector("#depList");
 const arrList = document.querySelector("#arrList");
@@ -21,7 +24,7 @@ const printBtn = document.querySelector("#printBtn");
 
 function defaultTravelDate() {
   const date = new Date();
-  date.setDate(date.getDate() + 3);
+  date.setDate(date.getDate() + defaultDateOffset);
   return date;
 }
 
@@ -231,7 +234,14 @@ function routeStops(result) {
 }
 
 function renderBlogPost(result) {
-  const stops = routeStops(result);
+  const stops = provider === "kobus" ? "" : routeStops(result);
+  const stopRow = provider === "kobus"
+    ? ""
+    : `
+          <tr>
+            <th>주요 경유지</th>
+            <td colspan="3">${stops}</td>
+          </tr>`;
   const rows = result.trips
     .map(
       (trip) => `
@@ -261,7 +271,7 @@ function renderBlogPost(result) {
             <th>시간표 확인일</th>
             <td>${plainDate(result.date)}</td>
             <th>예매 사이트</th>
-            <td><a href="${result.officialUrl || officialUrl}" target="_blank" rel="noopener">${providerName}</a></td>
+            <td><a href="${result.officialUrl || officialUrl}" target="_blank" rel="noopener">${bookingSiteName}</a></td>
           </tr>
           <tr>
             <th>출발지</th>
@@ -269,10 +279,7 @@ function renderBlogPost(result) {
             <th>도착지</th>
             <td>${result.arrName}</td>
           </tr>
-          <tr>
-            <th>주요 경유지</th>
-            <td colspan="3">${stops}</td>
-          </tr>
+          ${stopRow}
         </tbody>
       </table>
     </div>
@@ -328,6 +335,9 @@ form.addEventListener("submit", async (event) => {
       arrName: state.arr.name,
       date
     });
+    if (serviceKeyInput && serviceKeyInput.value.trim()) {
+      params.set("serviceKey", serviceKeyInput.value.trim());
+    }
     const result = await apiGet(`/api/${provider}/search?${params.toString()}`);
     state.lastResult = result;
     renderBlogPost(result);

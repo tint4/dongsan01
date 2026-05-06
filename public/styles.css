@@ -147,6 +147,10 @@ h1 {
   position: relative;
 }
 
+.api-key-field {
+  grid-column: 1 / -2;
+}
+
 label span {
   display: block;
   margin-bottom: 6px;
@@ -496,12 +500,15 @@ button:disabled {
 }
 
 .table-wrap {
-  overflow-x: auto;
+  width: 100%;
+  overflow-x: hidden;
 }
 
 table {
   width: 100%;
+  max-width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
   margin: 18px 0;
   font-size: 14px;
 }
@@ -511,7 +518,17 @@ td {
   border: 1px solid var(--line);
   padding: 10px 8px;
   text-align: center;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  vertical-align: middle;
+  line-height: 1.45;
+}
+
+th a,
+td a {
+  overflow-wrap: anywhere;
+  word-break: keep-all;
 }
 
 th {
@@ -533,7 +550,6 @@ th {
 }
 
 .route-info-table td[colspan] {
-  white-space: normal;
   word-break: keep-all;
   overflow-wrap: anywhere;
   line-height: 1.55;
@@ -659,6 +675,20 @@ td:nth-child(4) {
 
   .blog-post {
     padding: 24px 18px;
+  }
+
+  table {
+    font-size: 12px;
+  }
+
+  th,
+  td {
+    padding: 7px 5px;
+    line-height: 1.35;
+  }
+
+  .route-info-table th {
+    width: 22%;
   }
 
   .result-tools {

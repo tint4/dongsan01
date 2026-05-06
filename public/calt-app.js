@@ -70,7 +70,7 @@ function renderScheduleSection(title, rows) {
 function renderBlogPost(result) {
   const searchedDate = plainDateFromIso(result.searchedAt);
   const majorStops = result.majorStops && result.majorStops.length ? result.majorStops.join(", ") : "-";
-  const busLocationUrl = `https://map.naver.com/p/search/${encodeURIComponent(`${result.company} ${result.busNo}번 버스`)}`;
+  const busLocationUrl = `https://map.naver.com/p/search/${encodeURIComponent(result.busNo)}`;
   blogPost.innerHTML = `
     <p class="post-kicker">대중교통과 여행하기</p>
     <h2 class="post-title">${PROVIDER.name} ${result.busNo}번 시간표</h2>

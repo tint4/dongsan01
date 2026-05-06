@@ -3,19 +3,19 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>티머니 고속버스 시간표 블로그 글 만들기</title>
+    <title>코버스 시간표 블로그 글 만들기</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
-  <body data-provider="kobus" data-provider-name="티머니 고속버스" data-official-url="https://www.kobus.co.kr/main.do">
+  <body data-provider="kobus" data-provider-name="코버스" data-booking-site-name="코버스" data-official-url="https://www.kobus.co.kr/main.do" data-default-date-offset="1">
     <main class="app-shell">
       <nav class="page-nav" aria-label="페이지 이동">
         <a class="home-back-link" href="./index.html">메인페이지로 돌아가기</a>
       </nav>
 
-      <section class="search-panel" aria-label="티머니 고속버스 운행 정보 검색">
+      <section class="search-panel" aria-label="코버스 운행 정보 검색">
         <div>
           <p class="blog-name">대중교통 타고 여행하기</p>
-          <h1>티머니 고속버스 시간표 블로그 글 만들기</h1>
+          <h1>코버스 시간표 블로그 글 만들기</h1>
         </div>
 
         <form id="searchForm" class="search-form">
@@ -42,6 +42,11 @@
           <label>
             <span>가는 날짜</span>
             <input id="dateInput" type="date" required />
+          </label>
+
+          <label class="api-key-field">
+            <span>공공데이터 API 키</span>
+            <input id="serviceKeyInput" type="password" autocomplete="off" placeholder="DATA_GO_KR_SERVICE_KEY가 없을 때만 입력" />
           </label>
 
           <button type="submit">조회하고 글 만들기</button>
