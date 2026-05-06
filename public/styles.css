@@ -126,6 +126,10 @@ select {
   min-height: 92px;
 }
 
+.gumvit-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
 .gumvit-grade-A td {
   background: #ffe8e8;
 }
@@ -146,6 +150,17 @@ select {
 .gumvit-post .post-meta,
 .gumvit-post .direction-title {
   text-align: center;
+}
+
+.gumvit-order-table {
+  table-layout: fixed;
+}
+
+.gumvit-order-table th,
+.gumvit-order-table td {
+  width: calc(100% / 13);
+  padding: 9px 4px;
+  font-weight: 700;
 }
 
 .search-panel {
@@ -664,6 +679,16 @@ td:nth-child(2),
 td:nth-child(3),
 td:nth-child(4) {
   text-align: left;
+}
+
+.gumvit-post,
+.gumvit-post td,
+.gumvit-post th,
+.gumvit-post .post-kicker,
+.gumvit-post .post-title,
+.gumvit-post .post-meta,
+.gumvit-post .direction-title {
+  text-align: center;
 }
 
 .note {
