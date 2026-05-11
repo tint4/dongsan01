@@ -122,11 +122,24 @@ select {
   letter-spacing: 0;
 }
 
+.section-title-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.section-title-link:hover {
+  color: #14532d;
+}
+
 .gumvit-grid .bus-grid-cell {
   min-height: 92px;
 }
 
 .gumvit-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.community-grid {
   grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 

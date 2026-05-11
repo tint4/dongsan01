@@ -13,6 +13,7 @@ const TAGO_EXP_BUS_ORIGIN = "https://apis.data.go.kr/1613000/ExpBusInfo";
 const GUMVIT_ORIGIN = "https://www.gumvit.com";
 const BUSPIA_ORIGIN = "https://www.buspia.co.kr";
 const NEWSMILE_ORIGIN = "http://www.newsmilebus.com";
+const GWANGJU_BUS_ORIGIN = "https://bus.gwangju.go.kr";
 const JEJU_BUS_ORIGIN = "https://bus.jeju.go.kr";
 const BUSAN_BUS_ORIGIN = "https://bus.busan.go.kr";
 const INCHEON_BUS_ORIGIN = "https://bus.incheon.go.kr";
@@ -296,7 +297,7 @@ function parseGumvitRaceLinks(html, loc, type) {
 }
 
 function parseGumvitDetail(html, raceNo) {
-  const scoreWeights = [3, 1, 1, 0, 2];
+  const scoreWeights = [4, 3, 2, 1, 2];
   const horseMeta = new Map();
   const entrySection = (html.match(/<td[^>]*>\s*마번\s*<\/td>[\s\S]*?<td[^>]*>\s*조교\s*<\/td>[\s\S]*?<\/table>/) || [])[0] || "";
   [...entrySection.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)]
@@ -329,7 +330,7 @@ function parseGumvitDetail(html, raceNo) {
     const meta = horseMeta.get(horseName) || {};
     const notes = [];
     if (meta.cycleWeeks > 10) notes.push("10주이상");
-    if ((expertCounts[4] || 0) + (integratedCounts[4] || 0) >= 4) notes.push("복병");
+    if ((expertCounts[4] || 0) + (integratedCounts[4] || 0) >= 5) notes.push("복병");
     return {
       horseNo,
       horseName,
@@ -378,8 +379,101 @@ async function handleGumvitScores(req, res) {
       type,
       searchedAt: new Date().toISOString(),
       date: races[0].date || "",
-      weights: { "★": 3, "◎": 1, "○": 1, "▲": 0, "※": 2 },
+      weights: { "★": 4, "◎": 3, "○": 2, "▲": 1, "※": 2 },
       races: results
+    });
+  } catch (error) {
+    sendJson(res, 502, { error: error.message });
+  }
+}
+
+function parseGumvitResultDays(html, loc) {
+  const dayMap = new Map();
+  for (const match of html.matchAll(/goView\('([0-9]{4}-[0-9]{2}-[0-9]{2})',\s*(\d+)\)/g)) {
+    const date = match[1];
+    const raceNo = Number(match[2] || 0);
+    if (!raceNo) continue;
+    if (!dayMap.has(date)) dayMap.set(date, new Set());
+    dayMap.get(date).add(raceNo);
+  }
+  return [...dayMap.entries()]
+    .map(([date, races]) => ({
+      date,
+      loc,
+      races: [...races].sort((a, b) => a - b)
+    }))
+    .sort((a, b) => b.date.localeCompare(a.date));
+}
+
+function parseGumvitResultDetailTopThree(html) {
+  const rows = [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)]
+    .map((match) => [...match[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((cell) => htmlText(cell[1])))
+    .filter((cells) => cells.length >= 15 && /^\d+$/.test(cells[0] || "") && /^\d+$/.test(cells[2] || ""));
+
+  return rows
+    .map((cells) => ({
+      rank: Number(cells[0]),
+      horseNo: Number(cells[2]),
+      horseName: cells[3] || ""
+    }))
+    .filter((item) => item.rank >= 1 && item.rank <= 3 && item.horseNo)
+    .sort((a, b) => a.rank - b.rank)
+    .slice(0, 3);
+}
+
+function parseGumvitTrifectaPayout(html) {
+  const text = htmlText(html);
+  const matches = [...text.matchAll(/삼쌍승\s*:\s*(?:(?!합계).)*?([\d,]+(?:\.\d+)?)(?=\s|$)/g)];
+  const match = matches[matches.length - 1];
+  return match ? Number(match[1].replace(/,/g, "")) : 0;
+}
+
+async function handleGumvitResultDays(req, res) {
+  try {
+    const loc = String(req.searchParams.get("loc") || "S").trim().toUpperCase();
+    const page = Math.max(1, Number(req.searchParams.get("page") || 1));
+    const html = await fetchGumvitPage("/statv40/result.html", { loc, page });
+    sendJson(res, 200, {
+      source: "Gumvit",
+      officialUrl: `${GUMVIT_ORIGIN}/statv40/result.html?loc=${encodeURIComponent(loc)}&page=${page}`,
+      loc,
+      page,
+      days: parseGumvitResultDays(html, loc)
+    });
+  } catch (error) {
+    sendJson(res, 502, { error: error.message });
+  }
+}
+
+async function handleGumvitResultDate(req, res) {
+  try {
+    const loc = String(req.searchParams.get("loc") || "S").trim().toUpperCase();
+    const date = String(req.searchParams.get("date") || "").trim();
+    const races = String(req.searchParams.get("races") || "")
+      .split(",")
+      .map((value) => Number(value.trim()))
+      .filter(Boolean)
+      .slice(0, 20);
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return sendJson(res, 400, { error: "date is required." });
+    if (!races.length) return sendJson(res, 400, { error: "races is required." });
+
+    const results = await Promise.all(races.map(async (raceNo) => {
+      const html = await fetchGumvitPage("/statv40/result_detail.html", { loc, racedate: date, race: raceNo });
+      return {
+        date,
+        raceNo,
+        topThree: parseGumvitResultDetailTopThree(html),
+        trifectaPayout: parseGumvitTrifectaPayout(html)
+      };
+    }));
+
+    sendJson(res, 200, {
+      source: "Gumvit",
+      officialUrl: `${GUMVIT_ORIGIN}/statv40/result.html?loc=${encodeURIComponent(loc)}`,
+      loc,
+      date,
+      results
     });
   } catch (error) {
     sendJson(res, 502, { error: error.message });
@@ -528,6 +622,127 @@ function parseNewsmileDetail(html, route) {
 async function getNewsmileRouteWithImage(route) {
   const detailHtml = await fetchNewsmileHtml(`/sub01/bus.asp?idx=${encodeURIComponent(route.idx)}`, "euc-kr");
   return parseNewsmileDetail(detailHtml, route);
+}
+
+async function gwangjuPost(pathname, params = {}) {
+  const response = await fetch(`${GWANGJU_BUS_ORIGIN}${pathname}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+      "user-agent": USER_AGENT,
+      "x-requested-with": "XMLHttpRequest",
+      referer: `${GWANGJU_BUS_ORIGIN}/busmap/lineSearch`
+    },
+    body: new URLSearchParams(params)
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`광주버스 응답 오류 ${response.status}: ${text.slice(0, 200)}`);
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`광주버스 응답을 해석하지 못했습니다: ${htmlText(text).slice(0, 200)}`);
+  }
+}
+
+async function gwangjuGet(pathname, params = {}) {
+  const url = new URL(pathname, GWANGJU_BUS_ORIGIN);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, value);
+  });
+  const response = await fetch(url, {
+    headers: {
+      "user-agent": USER_AGENT,
+      referer: `${GWANGJU_BUS_ORIGIN}/busmap/lineSearch`
+    }
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`광주버스 응답 오류 ${response.status}: ${text.slice(0, 200)}`);
+  return text;
+}
+
+function normalizeGwangjuRoute(item) {
+  const kindMap = {
+    1: "급행간선",
+    2: "간선",
+    3: "지선",
+    4: "마을버스",
+    5: "공항버스"
+  };
+  return {
+    lineId: String(item.LINE_ID || ""),
+    routeNo: String(item.LINE_NAME || ""),
+    busType: kindMap[Number(item.LINE_KIND)] || "일반",
+    lineKind: String(item.LINE_KIND || ""),
+    depName: String(item.DIR_DOWN_NAME || ""),
+    arrName: String(item.DIR_UP_NAME || ""),
+    routeTitle: `${item.DIR_DOWN_NAME || ""} - ${item.DIR_UP_NAME || ""}`.replace(/^\s*-\s*|\s*-\s*$/g, ""),
+    sourceUrl: `${GWANGJU_BUS_ORIGIN}/busmap/lineSearch`
+  };
+}
+
+function parseGwangjuTimetable(html) {
+  const headerItems = [...html.matchAll(/<li[^>]+class=['"]li_hd_[0-3]['"][^>]*>([\s\S]*?)<\/li>/gi)]
+    .map((match) => htmlText(match[1]));
+  const groups = [...html.matchAll(/<ul>\s*([\s\S]*?<li[^>]+class=['"]li_hd1_3['"][\s\S]*?<\/li>)\s*<\/ul>/gi)];
+  const rows = groups
+    .map((match) => [...match[1].matchAll(/<li[^>]+class=['"]li_hd1_[0-3]['"][^>]*>([\s\S]*?)<\/li>/gi)].map((cell) => htmlText(cell[1])))
+    .filter((cells) => cells.length >= 4)
+    .map((cells) => ({
+      upTime: cells[0] || "",
+      upNote: cells[1] || "",
+      downTime: cells[2] || "",
+      downNote: cells[3] || ""
+    }))
+    .filter((row) => row.upTime || row.downTime);
+  return {
+    title: htmlText((html.match(/운행시간표[^<]*/i) || [])[0] || "운행시간표"),
+    upName: headerItems[0] || "기점",
+    upNoteHeader: headerItems[1] || "기점비고",
+    downName: headerItems[2] || "종점",
+    downNoteHeader: headerItems[3] || "종점비고",
+    rows
+  };
+}
+
+async function fetchGwangjuRoute(keyword, limit = 20) {
+  const search = await gwangjuPost("/busmap/lineSearchListTemp2?auth=null", {
+    LINE_NAME: keyword,
+    LINE_KIND: ""
+  });
+  const routes = (search.list || []).map(normalizeGwangjuRoute).slice(0, limit);
+  const enriched = [];
+  for (const route of routes) {
+    try {
+      const baseParams = { LINE_ID: route.lineId, LINE_NAME: route.routeNo, LINE_KIND: route.lineKind };
+      const [detailData, stationData, timetableHtml] = await Promise.all([
+        gwangjuPost("/busmap/lineDetailTemp2", baseParams),
+        gwangjuPost("/busmap/lineDetailStationListTemp2", baseParams),
+        gwangjuGet("/busmap/busRunTimeTable", { LINE_ID: route.lineId })
+      ]);
+      const detail = detailData.detail || {};
+      const stops = (stationData.list || [])
+        .sort((a, b) => Number(a.SEQ || 0) - Number(b.SEQ || 0))
+        .map((item) => String(item.BUSSTOP_NAME || "").trim())
+        .filter(Boolean);
+      enriched.push({
+        ...route,
+        depName: route.depName || stops[0] || "",
+        arrName: route.arrName || stops[stops.length - 1] || "",
+        company: detail.COMP_NAME || "광주광역시 버스",
+        phone: detail.TEL_NO || "",
+        firstTime: detail.FIRST_RUN_TIME || "",
+        lastTime: detail.LAST_RUN_TIME || "",
+        interval: detail.RUN_INTERVAL || "",
+        duration: detail.RUN_TIME || "",
+        remark: detail.REMK || "",
+        stops: [...new Set(stops)].slice(0, 10),
+        timetable: parseGwangjuTimetable(timetableHtml)
+      });
+    } catch (error) {
+      enriched.push({ ...route, company: "광주광역시 버스", stops: [], timetable: { rows: [] }, imageError: error.message });
+    }
+  }
+  return enriched;
 }
 
 async function jejuPost(pathname, params) {
@@ -1564,6 +1779,23 @@ async function handleNewsmileDownload(req, res) {
   }
 }
 
+async function handleGwangjuBusSearch(req, res) {
+  try {
+    const keyword = String(req.searchParams.get("q") || "").trim();
+    if (!keyword) return sendJson(res, 200, { routes: [] });
+    const limit = Math.max(1, Math.min(36, Number(req.searchParams.get("limit") || 20)));
+    const routes = await fetchGwangjuRoute(keyword, limit);
+    sendJson(res, 200, {
+      source: "광주버스",
+      officialUrl: `${GWANGJU_BUS_ORIGIN}/busmap/lineSearch`,
+      searchedAt: new Date().toISOString(),
+      routes
+    });
+  } catch (error) {
+    sendJson(res, 502, { error: error.message });
+  }
+}
+
 async function handleJejuBusSearch(req, res) {
   try {
     const busNo = String(req.searchParams.get("busNo") || "").trim();
@@ -2291,10 +2523,13 @@ const server = http.createServer(async (request, response) => {
   if (url.pathname === "/api/kobus/destinations") return handleKobusDestinations(req, response);
   if (url.pathname === "/api/kobus/search") return handleKobusPublicApiSearch(req, response);
   if (url.pathname === "/api/gumvit/scores") return handleGumvitScores(req, response);
+  if (url.pathname === "/api/gumvit/result-days") return handleGumvitResultDays(req, response);
+  if (url.pathname === "/api/gumvit/result-date") return handleGumvitResultDate(req, response);
   if (url.pathname === "/api/buspia/search") return handleBuspiaSearch(req, response);
   if (url.pathname === "/api/buspia/download") return handleBuspiaDownload(req, response);
   if (url.pathname === "/api/newsmile/search") return handleNewsmileSearch(req, response);
   if (url.pathname === "/api/newsmile/download") return handleNewsmileDownload(req, response);
+  if (url.pathname === "/api/gwangju-bus/search") return handleGwangjuBusSearch(req, response);
   if (url.pathname === "/api/jeju-bus/search") return handleJejuBusSearch(req, response);
   if (url.pathname === "/api/busan-bus/search") return handleBusanBusSearch(req, response);
   if (url.pathname === "/api/incheon-bus/search") return handleIncheonBusSearch(req, response);

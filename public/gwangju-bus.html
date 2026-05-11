@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>광주버스 시간표 만들기</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <nav class="page-nav" aria-label="페이지 이동">
+        <a class="home-back-link" href="./index.html">메인페이지로 돌아가기</a>
+      </nav>
+
+      <section class="search-panel" aria-label="광주버스 검색">
+        <div>
+          <p class="blog-name">대중교통과 여행하기</p>
+          <h1>광주버스 시간표 만들기</h1>
+        </div>
+
+        <form id="gwangjuForm" class="buspia-search-form">
+          <label>
+            <span>버스번호</span>
+            <input id="gwangjuKeyword" type="text" autocomplete="off" placeholder="예: 09, 1187" required />
+          </label>
+          <button type="submit">검색하기</button>
+        </form>
+        <p id="status" class="status" role="status"></p>
+      </section>
+
+      <section id="gwangjuResults" class="buspia-results" aria-label="광주버스 검색 결과"></section>
+
+      <section class="result-tools">
+        <button id="openNaverBtn" type="button" disabled>네이버 글쓰기 열기</button>
+      </section>
+
+      <article id="blogPost" class="blog-post">
+        <p class="empty">버스번호를 검색하면 광주버스 시간표와 블로그용 표가 만들어집니다.</p>
+      </article>
+
+      <nav class="page-nav bottom-page-nav" aria-label="하단 페이지 이동">
+        <a class="home-back-link" href="./index.html">메인페이지로 돌아가기</a>
+      </nav>
+    </main>
+
+    <script src="./gwangju-bus-app.js"></script>
+  </body>
+</html>
