@@ -57,7 +57,7 @@ function renderResult(data) {
   resultEl.innerHTML = `
     <p class="post-kicker">검빛</p>
     <h2 class="post-title">${label} 검빛 점수표</h2>
-    <p class="post-meta">${data.date || ""} 기준 · ★ 4점, ◎ 3점, ○ 2점, ▲ 1점, ※ 2점</p>
+    <p class="post-meta">${data.date || ""} 기준 · ★ 3점, ◎ 1점, ○ 1점, ▲ 0점, ※ 2점</p>
     <div class="table-wrap">
       <table class="route-info-table">
         <tbody>
