@@ -2,6 +2,7 @@ const fs = require("fs/promises");
 const http = require("http");
 const path = require("path");
 const zlib = require("zlib");
+const crypto = require("crypto");
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = process.env.NODE_TLS_REJECT_UNAUTHORIZED || "0";
 
@@ -23,6 +24,12 @@ const SEOUL_AIRBUS_ORIGIN = "https://www.seoulairbus.com";
 const CALT_ORIGIN = "https://www.calt.co.kr";
 const KLIMOUSINE_ORIGIN = "https://www.klimousine.com";
 const PUBLIC_DIR = path.join(__dirname, "public");
+const DATA_DIR = path.join(__dirname, "data");
+const COMMUNITY_USERS_FILE = path.join(DATA_DIR, "community-users.json");
+const COMMUNITY_POSTS_FILE = path.join(DATA_DIR, "community-posts.json");
+const ADMIN_ID = process.env.ADMIN_ID || "admin";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "kheotay24!";
+const ADMIN_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
 
@@ -38,6 +45,7 @@ const MIME_TYPES = {
 
 let kobusRouteCache = null;
 let jejuCompanyCache = null;
+const adminSessions = new Map();
 
 function readJsonBody(request) {
   return new Promise((resolve, reject) => {
@@ -1401,9 +1409,326 @@ async function getKobusRoutes() {
   return kobusRouteCache;
 }
 
-function sendJson(res, statusCode, payload) {
-  res.writeHead(statusCode, { "content-type": "application/json; charset=utf-8" });
+function sendJson(res, statusCode, payload, headers = {}) {
+  res.writeHead(statusCode, { "content-type": "application/json; charset=utf-8", ...headers });
   res.end(JSON.stringify(payload));
+}
+
+function parseCookies(cookieHeader = "") {
+  return Object.fromEntries(
+    String(cookieHeader)
+      .split(";")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const index = part.indexOf("=");
+        if (index < 0) return [part, ""];
+        return [part.slice(0, index), decodeURIComponent(part.slice(index + 1))];
+      })
+  );
+}
+
+function createAdminSession() {
+  const token = crypto.randomBytes(32).toString("hex");
+  adminSessions.set(token, Date.now() + ADMIN_SESSION_TTL_MS);
+  return token;
+}
+
+function isAdminRequest(request) {
+  const token = parseCookies(request.headers.cookie || "")["admin-session"];
+  const expiresAt = token ? adminSessions.get(token) : 0;
+  if (!token || !expiresAt) return false;
+  if (expiresAt <= Date.now()) {
+    adminSessions.delete(token);
+    return false;
+  }
+  adminSessions.set(token, Date.now() + ADMIN_SESSION_TTL_MS);
+  return true;
+}
+
+async function serveAdminPage(res) {
+  try {
+    const content = await fs.readFile(path.join(PUBLIC_DIR, "admin.html"));
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end(content);
+  } catch (error) {
+    res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+    res.end("Admin page not found");
+  }
+}
+
+async function handleAdminLogin(request, res) {
+  try {
+    const body = await readJsonBody(request);
+    const userId = String(body.userId || "").trim();
+    const password = String(body.password || "");
+    if (userId !== ADMIN_ID || password !== ADMIN_PASSWORD) {
+      return sendJson(res, 401, { ok: false, error: "관리자 아이디 또는 비밀번호가 올바르지 않습니다." });
+    }
+    const token = createAdminSession();
+    sendJson(res, 200, { ok: true }, {
+      "set-cookie": `admin-session=${encodeURIComponent(token)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${Math.floor(ADMIN_SESSION_TTL_MS / 1000)}`
+    });
+  } catch (error) {
+    sendJson(res, 500, { error: error.message });
+  }
+}
+
+async function handleAdminLogout(request, res) {
+  const token = parseCookies(request.headers.cookie || "")["admin-session"];
+  if (token) adminSessions.delete(token);
+  sendJson(res, 200, { ok: true }, {
+    "set-cookie": "admin-session=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0"
+  });
+}
+
+async function handleAdminStatus(request, res) {
+  const loggedIn = isAdminRequest(request);
+  if (!loggedIn) return sendJson(res, 200, { loggedIn: false });
+  const [users, posts] = await Promise.all([readCommunityUsers(), readCommunityPosts()]);
+  sendJson(res, 200, {
+    loggedIn: true,
+    userId: ADMIN_ID,
+    counts: {
+      users: users.length,
+      posts: posts.length,
+      comments: posts.reduce((sum, post) => sum + (post.comments || []).length, 0)
+    }
+  });
+}
+
+async function readCommunityUsers() {
+  try {
+    const raw = await fs.readFile(COMMUNITY_USERS_FILE, "utf8");
+    const data = JSON.parse(raw);
+    return Array.isArray(data.users) ? data.users : [];
+  } catch (error) {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+async function writeCommunityUsers(users) {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.writeFile(COMMUNITY_USERS_FILE, JSON.stringify({ users }, null, 2), "utf8");
+}
+
+function normalizeUserId(value) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+}
+
+function hashCommunityPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
+  const hash = crypto.scryptSync(String(password), salt, 64).toString("hex");
+  return { salt, hash };
+}
+
+function verifyCommunityPassword(password, user) {
+  const { hash } = hashCommunityPassword(password, user.salt);
+  const saved = Buffer.from(user.passwordHash || "", "hex");
+  const given = Buffer.from(hash, "hex");
+  return saved.length === given.length && crypto.timingSafeEqual(saved, given);
+}
+
+async function handleCommunitySignup(request, res) {
+  try {
+    const body = await readJsonBody(request);
+    const userId = normalizeUserId(body.userId);
+    const displayName = String(body.displayName || body.userId || "").trim().slice(0, 20);
+    const password = String(body.password || "");
+    if (userId.length < 4) return sendJson(res, 400, { error: "아이디는 영문/숫자 4자 이상으로 입력해주세요." });
+    if (password.length < 6) return sendJson(res, 400, { error: "비밀번호는 6자 이상으로 입력해주세요." });
+
+    const users = await readCommunityUsers();
+    if (users.some((user) => user.userId === userId)) return sendJson(res, 409, { error: "이미 사용 중인 아이디입니다." });
+
+    const { salt, hash } = hashCommunityPassword(password);
+    const user = {
+      userId,
+      displayName: displayName || userId,
+      salt,
+      passwordHash: hash,
+      createdAt: new Date().toISOString()
+    };
+    users.push(user);
+    await writeCommunityUsers(users);
+    sendJson(res, 200, { ok: true, user: { userId: user.userId, displayName: user.displayName } });
+  } catch (error) {
+    sendJson(res, 500, { error: error.message });
+  }
+}
+
+async function handleCommunityLogin(request, res) {
+  try {
+    const body = await readJsonBody(request);
+    const userId = normalizeUserId(body.userId);
+    const password = String(body.password || "");
+    const users = await readCommunityUsers();
+    const user = users.find((item) => item.userId === userId);
+    if (!user) return sendJson(res, 404, { code: "INVALID_ID", error: "아이디를 확인해주세요." });
+    if (!verifyCommunityPassword(password, user)) return sendJson(res, 401, { code: "INVALID_PASSWORD", error: "비밀번호를 다시 확인해주세요." });
+    sendJson(res, 200, { ok: true, user: { userId: user.userId, displayName: user.displayName } });
+  } catch (error) {
+    sendJson(res, 500, { error: error.message });
+  }
+}
+
+const communityBreadSubcategories = [
+  "단팥빵",
+  "바게트",
+  "베이글",
+  "빵 오 쇼콜라",
+  "브리오슈",
+  "소금빵",
+  "소보로",
+  "앙버터",
+  "치아바타",
+  "카스테라",
+  "크루아상",
+  "크림빵",
+  "호밀빵",
+  "햄버거"
+];
+
+function createCommunitySeedPosts() {
+  return communityBreadSubcategories.slice(0, 6).map((name, index) => ({
+    id: Date.now() - index,
+    category: "빵류",
+    subcategory: name,
+    title: `${name} 이야기 모음`,
+    body: `${name} 게시판입니다. 비회원도 글을 읽고 댓글을 남길 수 있습니다.`,
+    author: "운영자",
+    views: 12 + index * 3,
+    comments: [
+      {
+        id: Date.now() + index,
+        name: "비회원",
+        body: "첫 댓글입니다.",
+        createdAt: new Date().toISOString()
+      }
+    ],
+    createdAt: new Date(Date.now() - index * 86400000).toISOString()
+  }));
+}
+
+function normalizeCommunityPost(post) {
+  return {
+    id: Number(post.id) || Date.now(),
+    category: String(post.category || "자유게시판"),
+    subcategory: String(post.subcategory || post.category || "자유게시판"),
+    title: String(post.title || "제목 없음"),
+    body: String(post.body || ""),
+    author: String(post.author || "회원"),
+    views: Number(post.views || 0),
+    comments: Array.isArray(post.comments) ? post.comments.map((comment, index) => ({
+      id: Number(comment.id) || Date.now() + index,
+      name: String(comment.name || "비회원"),
+      body: String(comment.body || ""),
+      createdAt: comment.createdAt || new Date().toISOString()
+    })) : [],
+    createdAt: post.createdAt || new Date().toISOString()
+  };
+}
+
+async function readCommunityPosts() {
+  try {
+    const raw = await fs.readFile(COMMUNITY_POSTS_FILE, "utf8");
+    const data = JSON.parse(raw);
+    return Array.isArray(data.posts) ? data.posts.map(normalizeCommunityPost) : [];
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    const posts = createCommunitySeedPosts();
+    await writeCommunityPosts(posts);
+    return posts;
+  }
+}
+
+async function writeCommunityPosts(posts) {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.writeFile(COMMUNITY_POSTS_FILE, JSON.stringify({ posts }, null, 2), "utf8");
+}
+
+async function handleCommunityPosts(req, res) {
+  try {
+    const category = String(req.searchParams.get("category") || "").trim();
+    const subcategory = String(req.searchParams.get("subcategory") || "").trim();
+    const posts = (await readCommunityPosts())
+      .filter((post) => !category || post.category === category)
+      .filter((post) => !subcategory || post.subcategory === subcategory)
+      .sort((a, b) => Number(b.id) - Number(a.id));
+    sendJson(res, 200, { posts });
+  } catch (error) {
+    sendJson(res, 500, { error: error.message });
+  }
+}
+
+async function handleCommunityPost(req, res) {
+  try {
+    const id = Number(req.searchParams.get("id"));
+    const posts = await readCommunityPosts();
+    const post = posts.find((item) => Number(item.id) === id);
+    if (!post) return sendJson(res, 404, { error: "게시글을 찾을 수 없습니다." });
+    post.views = Number(post.views || 0) + 1;
+    await writeCommunityPosts(posts);
+    sendJson(res, 200, { post });
+  } catch (error) {
+    sendJson(res, 500, { error: error.message });
+  }
+}
+
+async function handleCommunityCreatePost(request, res) {
+  try {
+    const body = await readJsonBody(request);
+    const title = String(body.title || "").trim();
+    const content = String(body.body || "").trim();
+    const category = String(body.category || "").trim();
+    const subcategory = String(body.subcategory || category).trim();
+    const author = String(body.author || "회원").trim().slice(0, 20) || "회원";
+    if (!title || !content || !category || !subcategory) {
+      return sendJson(res, 400, { error: "게시글 제목과 내용을 입력해주세요." });
+    }
+
+    const posts = await readCommunityPosts();
+    const post = normalizeCommunityPost({
+      id: Date.now(),
+      category,
+      subcategory,
+      title: title.slice(0, 80),
+      body: content,
+      author,
+      views: 0,
+      comments: [],
+      createdAt: new Date().toISOString()
+    });
+    posts.push(post);
+    await writeCommunityPosts(posts);
+    sendJson(res, 200, { ok: true, post });
+  } catch (error) {
+    sendJson(res, 500, { error: error.message });
+  }
+}
+
+async function handleCommunityAddComment(request, res) {
+  try {
+    const body = await readJsonBody(request);
+    const id = Number(body.postId);
+    const commentBody = String(body.body || "").trim();
+    const name = String(body.name || "비회원").trim().slice(0, 20) || "비회원";
+    if (!commentBody) return sendJson(res, 400, { error: "댓글 내용을 입력해주세요." });
+
+    const posts = await readCommunityPosts();
+    const post = posts.find((item) => Number(item.id) === id);
+    if (!post) return sendJson(res, 404, { error: "게시글을 찾을 수 없습니다." });
+    post.comments.push({
+      id: Date.now(),
+      name,
+      body: commentBody,
+      createdAt: new Date().toISOString()
+    });
+    await writeCommunityPosts(posts);
+    sendJson(res, 200, { ok: true, post });
+  } catch (error) {
+    sendJson(res, 500, { error: error.message });
+  }
 }
 
 async function handleTerminals(req, res) {
@@ -2520,6 +2845,24 @@ const server = http.createServer(async (request, response) => {
   if (url.pathname === "/api/naver/post" && request.method === "POST") {
     return handleNaverPost(request, response);
   }
+  if (url.pathname === "/api/admin/login" && request.method === "POST") {
+    return handleAdminLogin(request, response);
+  }
+  if (url.pathname === "/api/admin/logout" && request.method === "POST") {
+    return handleAdminLogout(request, response);
+  }
+  if (url.pathname === "/api/community/signup" && request.method === "POST") {
+    return handleCommunitySignup(request, response);
+  }
+  if (url.pathname === "/api/community/login" && request.method === "POST") {
+    return handleCommunityLogin(request, response);
+  }
+  if (url.pathname === "/api/community/posts" && request.method === "POST") {
+    return handleCommunityCreatePost(request, response);
+  }
+  if (url.pathname === "/api/community/comments" && request.method === "POST") {
+    return handleCommunityAddComment(request, response);
+  }
 
   if (request.method !== "GET") {
     response.writeHead(405, { "content-type": "text/plain; charset=utf-8" });
@@ -2527,7 +2870,11 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
+  if (url.pathname === "/admin") return serveAdminPage(response);
+  if (url.pathname === "/api/admin/status") return handleAdminStatus(request, response);
   if (url.pathname === "/api/terminals") return handleTerminals(req, response);
+  if (url.pathname === "/api/community/posts") return handleCommunityPosts(req, response);
+  if (url.pathname === "/api/community/post") return handleCommunityPost(req, response);
   if (url.pathname === "/api/destinations") return handleDestinations(req, response);
   if (url.pathname === "/api/search") return handleSearch(req, response);
   if (url.pathname === "/api/tmoney-intercity/terminals") return handleTmoneyIntercityTerminals(req, response);

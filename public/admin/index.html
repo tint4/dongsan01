@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>관리자 페이지</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="admin-shell">
+      <nav class="page-nav" aria-label="페이지 이동">
+        <a class="home-back-link" href="./index.html">메인페이지로 돌아가기</a>
+      </nav>
+
+      <section id="adminLoginPanel" class="admin-card">
+        <h1>관리자 로그인</h1>
+        <form id="adminLoginForm" class="admin-login-form">
+          <label>
+            <span>관리자 아이디</span>
+            <input id="adminUserId" type="text" autocomplete="username" />
+          </label>
+          <label>
+            <span>관리자 비밀번호</span>
+            <input id="adminPassword" type="password" autocomplete="current-password" />
+          </label>
+          <button type="submit">로그인</button>
+          <p id="adminMessage" class="status" role="status"></p>
+        </form>
+      </section>
+
+      <section id="adminPanel" class="admin-card" hidden>
+        <div class="admin-panel-head">
+          <div>
+            <p class="community-eyebrow">Admin</p>
+            <h1>관리자 페이지</h1>
+          </div>
+          <button id="adminLogoutBtn" type="button">로그아웃</button>
+        </div>
+
+        <div class="admin-summary-grid">
+          <article>
+            <span>회원 수</span>
+            <strong id="adminUserCount">0</strong>
+          </article>
+          <article>
+            <span>게시글 수</span>
+            <strong id="adminPostCount">0</strong>
+          </article>
+          <article>
+            <span>댓글 수</span>
+            <strong id="adminCommentCount">0</strong>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <script src="./admin-app.js"></script>
+  </body>
+</html>

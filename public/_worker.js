@@ -15,9 +15,23 @@ const SEOUL_AIRBUS_ORIGIN = "https://www.seoulairbus.com";
 const CALT_ORIGIN = "https://www.calt.co.kr";
 const KLIMOUSINE_ORIGIN = "https://klimousine.com";
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+const ADMIN_ID = "admin";
+const ADMIN_PASSWORD = "kheotay24!";
+const ADMIN_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const Buffer = { from(value) { return value; } };
 const path = { extname(value) { const clean = String(value || "").split(/[?#]/)[0]; const index = clean.lastIndexOf("."); return index >= 0 ? clean.slice(index) : ""; } };
 let kobusRouteCache = null;
+const adminSessions = globalThis.__adminSessions || (globalThis.__adminSessions = new Map());
+const communityUsers = globalThis.__communityUsers || (globalThis.__communityUsers = []);
+const communityBreadSubcategories = [
+  "단팥빵",
+  "바게트",
+  "베이글",
+  "빵 오 쇼콜라",
+  "브리오슈",
+  "소금빵"
+];
+const communityPosts = globalThis.__communityPosts || (globalThis.__communityPosts = createCommunitySeedPosts());
 
 function compactCookie(headers) {
   const raw = headers.get("set-cookie");
@@ -1138,9 +1152,201 @@ async function getKobusRoutes() {
   return kobusRouteCache;
 }
 
-function sendJson(res, statusCode, payload) {
-  res.writeHead(statusCode, { "content-type": "application/json; charset=utf-8" });
+function sendJson(res, statusCode, payload, headers = {}) {
+  res.writeHead(statusCode, { "content-type": "application/json; charset=utf-8", ...headers });
   res.end(JSON.stringify(payload));
+}
+
+function parseCookies(cookieHeader = "") {
+  return Object.fromEntries(
+    String(cookieHeader)
+      .split(";")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const index = part.indexOf("=");
+        if (index < 0) return [part, ""];
+        return [part.slice(0, index), decodeURIComponent(part.slice(index + 1))];
+      })
+  );
+}
+
+function randomToken() {
+  const values = new Uint8Array(32);
+  crypto.getRandomValues(values);
+  return [...values].map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+function isAdminRequest(request) {
+  const token = parseCookies(request.headers.get("cookie") || "")["admin-session"];
+  const expiresAt = token ? adminSessions.get(token) : 0;
+  if (!token || !expiresAt) return false;
+  if (expiresAt <= Date.now()) {
+    adminSessions.delete(token);
+    return false;
+  }
+  adminSessions.set(token, Date.now() + ADMIN_SESSION_TTL_MS);
+  return true;
+}
+
+async function handleAdminLoginWorker(request, res) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const userId = String(body.userId || "").trim();
+    const password = String(body.password || "");
+    if (userId !== ADMIN_ID || password !== ADMIN_PASSWORD) {
+      return sendJson(res, 401, { ok: false, error: "관리자 아이디 또는 비밀번호가 올바르지 않습니다." });
+    }
+    const token = randomToken();
+    adminSessions.set(token, Date.now() + ADMIN_SESSION_TTL_MS);
+    return sendJson(res, 200, { ok: true }, {
+      "set-cookie": `admin-session=${encodeURIComponent(token)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${Math.floor(ADMIN_SESSION_TTL_MS / 1000)}`
+    });
+  } catch (error) {
+    return sendJson(res, 500, { error: error.message });
+  }
+}
+
+async function handleAdminLogoutWorker(request, res) {
+  const token = parseCookies(request.headers.get("cookie") || "")["admin-session"];
+  if (token) adminSessions.delete(token);
+  return sendJson(res, 200, { ok: true }, {
+    "set-cookie": "admin-session=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0"
+  });
+}
+
+async function handleAdminStatusWorker(request, res) {
+  if (!isAdminRequest(request)) return sendJson(res, 200, { loggedIn: false });
+  return sendJson(res, 200, {
+    loggedIn: true,
+    userId: ADMIN_ID,
+    counts: {
+      users: communityUsers.length,
+      posts: communityPosts.length,
+      comments: communityPosts.reduce((sum, post) => sum + (post.comments || []).length, 0)
+    }
+  });
+}
+
+function createCommunitySeedPosts() {
+  return communityBreadSubcategories.map((name, index) => ({
+    id: Date.now() - index,
+    category: "빵류",
+    subcategory: name,
+    title: `${name} 이야기 모음`,
+    body: `${name} 게시판입니다. 비회원도 글을 읽고 댓글을 남길 수 있습니다.`,
+    author: "운영자",
+    views: 12 + index * 3,
+    comments: [{ id: Date.now() + index, name: "비회원", body: "첫 댓글입니다.", createdAt: new Date().toISOString() }],
+    createdAt: new Date(Date.now() - index * 86400000).toISOString()
+  }));
+}
+
+function normalizeCommunityUserId(value) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+}
+
+async function hashCommunityPasswordWorker(password, salt) {
+  const bytes = new TextEncoder().encode(`${salt}:${password}`);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+async function handleCommunitySignupWorker(request, res) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const userId = normalizeCommunityUserId(body.userId);
+    const displayName = String(body.displayName || body.userId || "").trim().slice(0, 20);
+    const password = String(body.password || "");
+    if (userId.length < 4) return sendJson(res, 400, { error: "아이디는 영문/숫자 4자 이상으로 입력해주세요." });
+    if (password.length < 6) return sendJson(res, 400, { error: "비밀번호는 6자 이상으로 입력해주세요." });
+    if (communityUsers.some((user) => user.userId === userId)) return sendJson(res, 409, { error: "이미 사용 중인 아이디입니다." });
+    const salt = randomToken().slice(0, 32);
+    const passwordHash = await hashCommunityPasswordWorker(password, salt);
+    const user = { userId, displayName: displayName || userId, salt, passwordHash, createdAt: new Date().toISOString() };
+    communityUsers.push(user);
+    return sendJson(res, 200, { ok: true, user: { userId: user.userId, displayName: user.displayName } });
+  } catch (error) {
+    return sendJson(res, 500, { error: error.message });
+  }
+}
+
+async function handleCommunityLoginWorker(request, res) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const userId = normalizeCommunityUserId(body.userId);
+    const password = String(body.password || "");
+    const user = communityUsers.find((item) => item.userId === userId);
+    if (!user) return sendJson(res, 404, { code: "INVALID_ID", error: "아이디를 확인해주세요." });
+    const passwordHash = await hashCommunityPasswordWorker(password, user.salt);
+    if (passwordHash !== user.passwordHash) return sendJson(res, 401, { code: "INVALID_PASSWORD", error: "비밀번호를 다시 확인해주세요." });
+    return sendJson(res, 200, { ok: true, user: { userId: user.userId, displayName: user.displayName } });
+  } catch (error) {
+    return sendJson(res, 500, { error: error.message });
+  }
+}
+
+async function handleCommunityPostsWorker(req, res) {
+  const category = String(req.searchParams.get("category") || "").trim();
+  const subcategory = String(req.searchParams.get("subcategory") || "").trim();
+  const posts = communityPosts
+    .filter((post) => !category || post.category === category)
+    .filter((post) => !subcategory || post.subcategory === subcategory)
+    .sort((a, b) => Number(b.id) - Number(a.id));
+  return sendJson(res, 200, { posts });
+}
+
+async function handleCommunityPostWorker(req, res) {
+  const id = Number(req.searchParams.get("id"));
+  const post = communityPosts.find((item) => Number(item.id) === id);
+  if (!post) return sendJson(res, 404, { error: "게시글을 찾을 수 없습니다." });
+  post.views = Number(post.views || 0) + 1;
+  return sendJson(res, 200, { post });
+}
+
+async function handleCommunityCreatePostWorker(request, res) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const title = String(body.title || "").trim();
+    const content = String(body.body || "").trim();
+    const category = String(body.category || "").trim();
+    const subcategory = String(body.subcategory || category).trim();
+    if (!title || !content || !category || !subcategory) return sendJson(res, 400, { error: "게시글 제목과 내용을 입력해주세요." });
+    const post = {
+      id: Date.now(),
+      category,
+      subcategory,
+      title: title.slice(0, 80),
+      body: content,
+      author: String(body.author || "회원").trim().slice(0, 20) || "회원",
+      views: 0,
+      comments: [],
+      createdAt: new Date().toISOString()
+    };
+    communityPosts.push(post);
+    return sendJson(res, 200, { ok: true, post });
+  } catch (error) {
+    return sendJson(res, 500, { error: error.message });
+  }
+}
+
+async function handleCommunityAddCommentWorker(request, res) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const post = communityPosts.find((item) => Number(item.id) === Number(body.postId));
+    const commentBody = String(body.body || "").trim();
+    if (!post) return sendJson(res, 404, { error: "게시글을 찾을 수 없습니다." });
+    if (!commentBody) return sendJson(res, 400, { error: "댓글 내용을 입력해주세요." });
+    post.comments.push({
+      id: Date.now(),
+      name: String(body.name || "비회원").trim().slice(0, 20) || "비회원",
+      body: commentBody,
+      createdAt: new Date().toISOString()
+    });
+    return sendJson(res, 200, { ok: true, post });
+  } catch (error) {
+    return sendJson(res, 500, { error: error.message });
+  }
 }
 
 async function handleTerminals(req, res) {
@@ -2292,8 +2498,20 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const req = { pathname: url.pathname, searchParams: url.searchParams, env };
+    if (url.pathname === "/admin") {
+      return env.ASSETS.fetch(new Request(new URL("/admin/index.html", url), request));
+    }
     if (url.pathname === "/api/naver/post" && request.method === "POST") return runApi(handleNaverPostWorker, req, request);
+    if (url.pathname === "/api/admin/login" && request.method === "POST") return runApi(handleAdminLoginWorker, req, request);
+    if (url.pathname === "/api/admin/logout" && request.method === "POST") return runApi(handleAdminLogoutWorker, req, request);
+    if (url.pathname === "/api/community/signup" && request.method === "POST") return runApi(handleCommunitySignupWorker, req, request);
+    if (url.pathname === "/api/community/login" && request.method === "POST") return runApi(handleCommunityLoginWorker, req, request);
+    if (url.pathname === "/api/community/posts" && request.method === "POST") return runApi(handleCommunityCreatePostWorker, req, request);
+    if (url.pathname === "/api/community/comments" && request.method === "POST") return runApi(handleCommunityAddCommentWorker, req, request);
     if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
+    if (url.pathname === "/api/admin/status") return runApi(handleAdminStatusWorker, req, request);
+    if (url.pathname === "/api/community/posts") return runApi(handleCommunityPostsWorker, req);
+    if (url.pathname === "/api/community/post") return runApi(handleCommunityPostWorker, req);
     if (url.pathname === "/api/terminals") return runApi(handleTerminals, req);
     if (url.pathname === "/api/destinations") return runApi(handleDestinations, req);
     if (url.pathname === "/api/search") return runApi(handleSearch, req);
