@@ -43,10 +43,13 @@ const tasteScoreInput = document.querySelector("#tasteScoreInput");
 const priceScoreInput = document.querySelector("#priceScoreInput");
 const rankingMessage = document.querySelector("#rankingMessage");
 const rankingList = document.querySelector("#rankingList");
+const rankSortButtons = [...document.querySelectorAll(".rank-sort-btn")];
 
 let currentCategory = "빵류";
 let currentSubcategory = "단팥빵";
 let editingShopName = "";
+let currentSortKey = "totalScore";
+let currentSortDirection = "desc";
 let currentUser = JSON.parse(localStorage.getItem("community-user") || "null");
 let isMember = Boolean(currentUser);
 const loginFailKey = "community-login-fails";
@@ -209,12 +212,40 @@ function renderBoard() {
   updateMemberUi();
 }
 
+function sortRankings(rankings) {
+  const sortKey = currentSortKey;
+  const direction = currentSortDirection === "asc" ? 1 : -1;
+  return rankings
+    .map((item) => ({ ...item, originalRank: Number(item.rank || 0) }))
+    .sort((a, b) => {
+      if (sortKey === "rank") {
+        return direction * (Number(a.originalRank || 9999) - Number(b.originalRank || 9999));
+      }
+      const primary = Number(a[sortKey] || 0) - Number(b[sortKey] || 0);
+      if (primary !== 0) return direction * primary;
+      return Number(b.totalScore || 0) - Number(a.totalScore || 0) ||
+        Number(b.voteCount || 0) - Number(a.voteCount || 0) ||
+        String(a.shopName || "").localeCompare(String(b.shopName || ""), "ko");
+    })
+    .map((item, index) => ({ ...item, rank: index + 1 }));
+}
+
+function updateSortButtons() {
+  rankSortButtons.forEach((button) => {
+    const active = button.dataset.sort === currentSortKey && button.dataset.direction === currentSortDirection;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+}
+
 async function renderRankings(providedRankings) {
   let rankings = providedRankings;
   if (!rankings) {
     const query = new URLSearchParams({ category: currentCategory, subcategory: currentSubcategory });
     rankings = (await apiGet(`/api/community/rankings?${query.toString()}`)).rankings || [];
   }
+  rankings = sortRankings(rankings);
+  updateSortButtons();
   const byRank = new Map(rankings.map((item) => [item.rank, item]));
   rankingList.innerHTML = Array.from({ length: 100 }, (_, index) => {
     const rank = index + 1;
@@ -225,9 +256,9 @@ async function renderRankings(providedRankings) {
       <tr class="${item ? "" : "ranking-empty-row"}">
         <td>${rank}</td>
         <td>${shopName ? escapeHtml(shopName) : ""}</td>
+        <td class="total-score-cell">${item ? Number(item.totalScore || 0) : ""}</td>
         <td>${item ? Number(item.tasteScore || 0) : ""}</td>
         <td>${item ? Number(item.priceScore || 0) : ""}</td>
-        <td>${item ? Number(item.totalScore || 0) : ""}</td>
         <td>${item ? Number(item.voteCount || 0) : ""}</td>
         <td>
           ${item ? `<button type="button" class="score-shop-btn" data-shop="${escapeHtml(shopName)}" ${disabled}>점수주기</button>` : ""}
@@ -268,6 +299,16 @@ categoryTabs.forEach((tab) => {
     currentSubcategory = currentCategory === "빵류" ? "단팥빵" : currentCategory;
     categoryTabs.forEach((item) => item.classList.toggle("active", item === tab));
     renderBoard();
+  });
+});
+
+rankSortButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    currentSortKey = button.dataset.sort || "totalScore";
+    currentSortDirection = button.dataset.direction || "desc";
+    renderRankings().catch((error) => {
+      rankingList.innerHTML = `<tr><td colspan="7">${escapeHtml(error.message)}</td></tr>`;
+    });
   });
 });
 

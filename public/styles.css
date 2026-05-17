@@ -461,10 +461,47 @@ select {
   text-align: center;
 }
 
+.ranking-table .total-score-head {
+  background: #cfe3ff;
+  color: #0f3f82;
+  font-size: 15px;
+}
+
+.ranking-table .total-score-cell {
+  background: #eef6ff;
+  color: #0f3f82;
+  font-size: 17px;
+  font-weight: 800;
+}
+
 .ranking-table button {
   min-height: 32px;
   padding: 0 10px;
   font-size: 13px;
+}
+
+.rank-sort-group {
+  display: inline-flex;
+  gap: 3px;
+  margin-left: 5px;
+  vertical-align: middle;
+}
+
+.rank-sort-btn {
+  min-width: 24px;
+  min-height: 24px !important;
+  padding: 0 5px !important;
+  border: 0;
+  border-radius: 5px;
+  background: #dbeafe !important;
+  color: #1556a7 !important;
+  font-size: 12px !important;
+  white-space: nowrap;
+}
+
+.rank-sort-btn.active {
+  background: #1556a7 !important;
+  color: #fff !important;
 }
 
 .ranking-empty-row td {
