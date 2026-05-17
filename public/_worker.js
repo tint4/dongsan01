@@ -1423,7 +1423,7 @@ async function handleCommunityRankingScoreWorker(request, res) {
     const shopName = String(body.shopName || "").trim().slice(0, 60);
     const score = Number(body.score || 0);
     const voterId = normalizeCommunityUserId(body.userId);
-    if (category !== "빵류" || !communityBreadSubcategories.includes(subcategory)) return sendJson(res, 400, { error: "빵류 소분류만 랭킹 투표를 할 수 있습니다." });
+    if (!category || !subcategory) return sendJson(res, 400, { error: "분류를 확인해주세요." });
     if (!voterId) return sendJson(res, 401, { error: "로그인한 회원만 투표할 수 있습니다." });
     if (!communityUsers.some((user) => user.userId === voterId)) return sendJson(res, 401, { error: "로그인 정보를 다시 확인해주세요." });
     if (!shopName) return sendJson(res, 400, { error: "상점명을 입력해주세요." });
