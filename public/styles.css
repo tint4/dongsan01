@@ -411,6 +411,13 @@ select {
   background: #f7fbff;
 }
 
+.ranking-form-help {
+  margin: 0;
+  color: #8a8f98;
+  font-size: 14px;
+  font-weight: 700;
+}
+
 .community-write-form label {
   display: grid;
   gap: 6px;
@@ -456,9 +463,30 @@ select {
 .ranking-table th:nth-child(6),
 .ranking-table td:nth-child(6),
 .ranking-table th:nth-child(7),
-.ranking-table td:nth-child(7) {
+.ranking-table td:nth-child(7),
+.ranking-table th:nth-child(8),
+.ranking-table td:nth-child(8) {
   width: auto;
   text-align: center;
+}
+
+.map-link-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  min-height: 24px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: #ecfdf3;
+  color: #047857;
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.map-link-icon:hover {
+  background: #d1fae5;
 }
 
 .ranking-table .total-score-head {
