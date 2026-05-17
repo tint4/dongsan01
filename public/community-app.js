@@ -35,20 +35,26 @@ const categoryTabs = [...document.querySelectorAll(".category-tab")];
 const boardTitle = document.querySelector("#boardTitle");
 const boardSummary = document.querySelector("#boardSummary");
 const subCategoryList = document.querySelector("#subCategoryList");
-const writeOpenBtn = document.querySelector("#writeOpenBtn");
-const writeForm = document.querySelector("#writeForm");
-const writeCancelBtn = document.querySelector("#writeCancelBtn");
-const postTitle = document.querySelector("#postTitle");
-const postBody = document.querySelector("#postBody");
-const postList = document.querySelector("#postList");
-const postDetail = document.querySelector("#postDetail");
+const newRankingBtn = document.querySelector("#newRankingBtn");
+const rankingForm = document.querySelector("#rankingForm");
+const rankingCancelBtn = document.querySelector("#rankingCancelBtn");
+const shopNameInput = document.querySelector("#shopNameInput");
+const scoreInput = document.querySelector("#scoreInput");
+const rankingMessage = document.querySelector("#rankingMessage");
+const rankingList = document.querySelector("#rankingList");
 
 let currentCategory = "빵류";
 let currentSubcategory = "단팥빵";
+let editingShopName = "";
 let currentUser = JSON.parse(localStorage.getItem("community-user") || "null");
 let isMember = Boolean(currentUser);
 const loginFailKey = "community-login-fails";
 const loginLockKey = "community-login-locked-until";
+
+scoreInput.innerHTML = Array.from({ length: 10 }, (_, index) => {
+  const score = index + 1;
+  return `<option value="${score}">${score}점</option>`;
+}).join("");
 
 async function apiPost(path, payload) {
   const response = await fetch(path, {
@@ -77,6 +83,10 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+function isActiveRankingEnabled() {
+  return currentCategory === "빵류" && breadSubcategories.includes(currentSubcategory);
+}
+
 function getLoginFailCount() {
   return Number(localStorage.getItem(loginFailKey) || 0);
 }
@@ -97,6 +107,11 @@ function getLoginLockedUntil() {
 function setAuthMessage(message, isError = false) {
   authMessage.textContent = message;
   authMessage.style.color = isError ? "#c2410c" : "";
+}
+
+function setRankingMessage(message, isError = false) {
+  rankingMessage.textContent = message;
+  rankingMessage.style.color = isError ? "#c2410c" : "";
 }
 
 function lockLoginForThreeMinutes() {
@@ -122,9 +137,7 @@ function showAuthForm(type) {
     }, lockedUntil - Date.now());
     return;
   }
-  if (type === "login" && lockedUntil && lockedUntil <= Date.now()) {
-    clearLoginFails();
-  }
+  if (type === "login" && lockedUntil && lockedUntil <= Date.now()) clearLoginFails();
   authPanel.hidden = false;
   loginForm.hidden = type !== "login";
   signupForm.hidden = type !== "signup";
@@ -150,8 +163,6 @@ function updateMemberUi() {
   joinBtn.hidden = isMember;
   if (isMember) loginToggle.hidden = false;
   loginToggle.textContent = isMember ? "로그아웃" : "회원 로그인";
-  writeOpenBtn.disabled = !isMember;
-  writeOpenBtn.title = isMember ? "" : "회원만 글을 쓸 수 있습니다.";
 }
 
 function renderSubcategories() {
@@ -164,7 +175,7 @@ function renderSubcategories() {
   if (!items.includes(currentSubcategory)) currentSubcategory = items[0];
 
   subCategoryList.innerHTML = items.map((item) => `
-    <button type="button" class="${item === currentSubcategory ? "active" : ""}" data-subcategory="${item}">${item}</button>
+    <button type="button" class="${item === currentSubcategory ? "active" : ""}" data-subcategory="${escapeHtml(item)}">${escapeHtml(item)}</button>
   `).join("");
 
   subCategoryList.querySelectorAll("button").forEach((button) => {
@@ -177,83 +188,72 @@ function renderSubcategories() {
 
 function renderBoard() {
   boardTitle.textContent = currentCategory;
-  boardSummary.textContent = `${currentSubcategory} 게시판 · 회원은 글쓰기 가능, 비회원은 읽기와 댓글 가능`;
+  boardSummary.textContent = `${currentSubcategory} 랭킹 차트`;
+  rankingForm.hidden = true;
+  editingShopName = "";
+  if (!isActiveRankingEnabled()) {
+    setRankingMessage("빵류 소분류에서 랭킹 투표를 사용할 수 있습니다.");
+  } else if (!isMember) {
+    setRankingMessage("로그인한 회원만 신규등록과 점수주기를 할 수 있습니다.");
+  } else {
+    setRankingMessage("각 소분류는 월요일부터 일요일까지 회원 1명당 1회만 투표할 수 있습니다.");
+  }
+  newRankingBtn.disabled = !isActiveRankingEnabled() || !isMember;
   renderSubcategories();
-  postDetail.innerHTML = "";
-  renderPosts().catch((error) => {
-    postList.innerHTML = `<tr><td colspan="6">${error.message}</td></tr>`;
+  renderRankings().catch((error) => {
+    rankingList.innerHTML = `<tr><td colspan="5">${escapeHtml(error.message)}</td></tr>`;
   });
   updateMemberUi();
 }
 
-async function renderPosts() {
-  const query = new URLSearchParams({
-    category: currentCategory,
-    subcategory: currentSubcategory
-  });
-  const data = await apiGet(`/api/community/posts?${query.toString()}`);
-  const posts = data.posts || [];
+async function renderRankings(providedRankings) {
+  let rankings = providedRankings;
+  if (!rankings) {
+    const query = new URLSearchParams({ category: currentCategory, subcategory: currentSubcategory });
+    rankings = (await apiGet(`/api/community/rankings?${query.toString()}`)).rankings || [];
+  }
+  const byRank = new Map(rankings.map((item) => [item.rank, item]));
+  rankingList.innerHTML = Array.from({ length: 100 }, (_, index) => {
+    const rank = index + 1;
+    const item = byRank.get(rank);
+    const shopName = item?.shopName || "";
+    const disabled = !item || !isActiveRankingEnabled() || !isMember ? "disabled" : "";
+    return `
+      <tr class="${item ? "" : "ranking-empty-row"}">
+        <td>${rank}</td>
+        <td>${shopName ? escapeHtml(shopName) : ""}</td>
+        <td>${item ? Number(item.totalScore || 0) : ""}</td>
+        <td>${item ? Number(item.voteCount || 0) : ""}</td>
+        <td>
+          ${item ? `<button type="button" class="score-shop-btn" data-shop="${escapeHtml(shopName)}" ${disabled}>점수주기</button>` : ""}
+        </td>
+      </tr>
+    `;
+  }).join("");
 
-  postList.innerHTML = posts.map((post, index) => `
-    <tr data-id="${post.id}">
-      <td>${posts.length - index}</td>
-      <td>${escapeHtml(post.subcategory)}</td>
-      <td class="community-title-cell">${escapeHtml(post.title)}</td>
-      <td>${escapeHtml(post.author)}</td>
-      <td>${(post.comments || []).length}</td>
-      <td>${Number(post.views || 0)}</td>
-    </tr>
-  `).join("") || '<tr><td colspan="6">아직 게시글이 없습니다.</td></tr>';
-
-  postList.querySelectorAll("tr[data-id]").forEach((row) => {
-    row.addEventListener("click", () => {
-      openPost(Number(row.dataset.id)).catch((error) => {
-        postDetail.innerHTML = `<p>${error.message}</p>`;
-      });
-    });
+  rankingList.querySelectorAll(".score-shop-btn").forEach((button) => {
+    button.addEventListener("click", () => showRankingForm(button.dataset.shop));
   });
 }
 
-async function openPost(id) {
-  const data = await apiGet(`/api/community/post?id=${encodeURIComponent(id)}`);
-  const post = data.post;
-  if (!post) return;
-  postDetail.innerHTML = `
-    <div class="community-detail-head">
-      <span>${escapeHtml(post.subcategory)}</span>
-      <h3>${escapeHtml(post.title)}</h3>
-      <p>${escapeHtml(post.author)} · 조회 ${Number(post.views || 0)} · 댓글 ${(post.comments || []).length}</p>
-    </div>
-    <div class="community-detail-body">${escapeHtml(post.body).replace(/\n/g, "<br>")}</div>
-    <section class="community-comments">
-      <h4>댓글</h4>
-      <ul>
-        ${(post.comments || []).map((comment) => `<li><strong>${escapeHtml(comment.name)}</strong><span>${escapeHtml(comment.body)}</span></li>`).join("") || "<li>댓글이 없습니다.</li>"}
-      </ul>
-      <form class="comment-form" data-id="${post.id}">
-        <input name="name" type="text" placeholder="비회원 이름" value="비회원" />
-        <input name="body" type="text" placeholder="댓글을 입력하세요" required />
-        <button type="submit">댓글 등록</button>
-      </form>
-    </section>
-  `;
-  postDetail.querySelector(".comment-form").addEventListener("submit", (event) => {
-    addComment(event).catch((error) => window.alert(error.message));
-  });
-  await renderPosts();
-}
-
-async function addComment(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const id = Number(form.dataset.id);
-  const data = new FormData(form);
-  await apiPost("/api/community/comments", {
-    postId: id,
-    name: String(data.get("name") || "비회원").trim() || "비회원",
-    body: String(data.get("body") || "").trim()
-  });
-  await openPost(id);
+function showRankingForm(shopName = "") {
+  if (!isActiveRankingEnabled()) return;
+  if (!isMember) {
+    setRankingMessage("로그인한 회원만 투표할 수 있습니다.", true);
+    showAuthForm("login");
+    return;
+  }
+  editingShopName = shopName;
+  rankingForm.hidden = false;
+  shopNameInput.value = shopName;
+  shopNameInput.readOnly = Boolean(shopName);
+  scoreInput.value = "10";
+  setRankingMessage(shopName ? `${shopName}에 점수를 추가합니다.` : "신규 상점명을 입력하면 차트에 등록됩니다.");
+  if (shopName) {
+    scoreInput.focus();
+  } else {
+    shopNameInput.focus();
+  }
 }
 
 categoryTabs.forEach((tab) => {
@@ -261,10 +261,37 @@ categoryTabs.forEach((tab) => {
     currentCategory = tab.dataset.category;
     currentSubcategory = currentCategory === "빵류" ? "단팥빵" : currentCategory;
     categoryTabs.forEach((item) => item.classList.toggle("active", item === tab));
-    writeForm.hidden = true;
-    postDetail.innerHTML = "";
     renderBoard();
   });
+});
+
+newRankingBtn.addEventListener("click", () => showRankingForm(""));
+
+rankingCancelBtn.addEventListener("click", () => {
+  rankingForm.hidden = true;
+  editingShopName = "";
+  shopNameInput.readOnly = false;
+  setRankingMessage("");
+});
+
+rankingForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const data = await apiPost("/api/community/rankings/score", {
+      category: currentCategory,
+      subcategory: currentSubcategory,
+      shopName: editingShopName || shopNameInput.value,
+      score: Number(scoreInput.value),
+      userId: currentUser?.userId || ""
+    });
+    rankingForm.hidden = true;
+    editingShopName = "";
+    shopNameInput.readOnly = false;
+    setRankingMessage("점수가 반영되었습니다.");
+    await renderRankings(data.rankings || []);
+  } catch (error) {
+    setRankingMessage(error.message, true);
+  }
 });
 
 loginToggle.addEventListener("click", () => {
@@ -276,13 +303,10 @@ loginToggle.addEventListener("click", () => {
   isMember = false;
   localStorage.removeItem("community-user");
   hideAuthForm();
-  updateMemberUi();
+  renderBoard();
 });
 
-joinBtn.addEventListener("click", () => {
-  showAuthForm("signup");
-});
-
+joinBtn.addEventListener("click", () => showAuthForm("signup"));
 loginCancelBtn.addEventListener("click", hideAuthForm);
 signupCancelBtn.addEventListener("click", hideAuthForm);
 
@@ -319,7 +343,7 @@ loginForm.addEventListener("submit", async (event) => {
     clearLoginFails();
     loginForm.reset();
     hideAuthForm();
-    updateMemberUi();
+    renderBoard();
   } catch (error) {
     const nextFailCount = getLoginFailCount() + 1;
     setLoginFailCount(nextFailCount);
@@ -328,39 +352,6 @@ loginForm.addEventListener("submit", async (event) => {
       return;
     }
     setAuthMessage(error.message, true);
-  }
-});
-
-writeOpenBtn.addEventListener("click", () => {
-  if (!isMember) return;
-  writeForm.hidden = false;
-  postTitle.focus();
-});
-
-writeCancelBtn.addEventListener("click", () => {
-  writeForm.hidden = true;
-});
-
-writeForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  if (!isMember) return;
-  const title = postTitle.value.trim();
-  const body = postBody.value.trim();
-  if (!title || !body) return;
-  try {
-    await apiPost("/api/community/posts", {
-      category: currentCategory,
-      subcategory: currentSubcategory,
-      title,
-      body,
-      author: currentUser?.displayName || "회원"
-    });
-    postTitle.value = "";
-    postBody.value = "";
-    writeForm.hidden = true;
-    await renderPosts();
-  } catch (error) {
-    window.alert(error.message);
   }
 });
 

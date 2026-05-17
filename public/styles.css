@@ -441,6 +441,33 @@ select {
   width: 42%;
 }
 
+.ranking-table th:nth-child(2),
+.ranking-table td:nth-child(2) {
+  width: 42%;
+  text-align: left;
+}
+
+.ranking-table th:nth-child(3),
+.ranking-table td:nth-child(3),
+.ranking-table th:nth-child(4),
+.ranking-table td:nth-child(4),
+.ranking-table th:nth-child(5),
+.ranking-table td:nth-child(5) {
+  width: auto;
+  text-align: center;
+}
+
+.ranking-table button {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.ranking-empty-row td {
+  height: 42px;
+  color: #a0aec0;
+}
+
 .community-title-cell {
   text-align: left;
   cursor: pointer;

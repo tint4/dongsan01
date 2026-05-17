@@ -27,6 +27,7 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 const DATA_DIR = path.join(__dirname, "data");
 const COMMUNITY_USERS_FILE = path.join(DATA_DIR, "community-users.json");
 const COMMUNITY_POSTS_FILE = path.join(DATA_DIR, "community-posts.json");
+const COMMUNITY_RANKINGS_FILE = path.join(DATA_DIR, "community-rankings.json");
 const ADMIN_ID = process.env.ADMIN_ID || "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "kheotay24!";
 const ADMIN_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -1647,6 +1648,187 @@ async function writeCommunityPosts(posts) {
   await fs.writeFile(COMMUNITY_POSTS_FILE, JSON.stringify({ posts }, null, 2), "utf8");
 }
 
+function normalizeCommunityRankingItem(item) {
+  const legacyVotes = [];
+  if (!Array.isArray(item.votes) && Number(item.totalScore || 0) > 0) {
+    legacyVotes.push({
+      userId: "legacy",
+      score: Number(item.totalScore || 0),
+      votedAt: item.updatedAt || item.createdAt || new Date().toISOString()
+    });
+  }
+  return {
+    id: Number(item.id) || Date.now(),
+    category: String(item.category || "빵류"),
+    subcategory: String(item.subcategory || "단팥빵"),
+    shopName: String(item.shopName || "").trim(),
+    votes: Array.isArray(item.votes) ? item.votes.map((vote) => ({
+      userId: normalizeUserId(vote.userId || "unknown"),
+      score: Number(vote.score || 0),
+      votedAt: vote.votedAt || item.updatedAt || item.createdAt || new Date().toISOString()
+    })).filter((vote) => vote.score >= 1 && vote.score <= 10) : legacyVotes,
+    createdAt: item.createdAt || new Date().toISOString(),
+    updatedAt: item.updatedAt || new Date().toISOString()
+  };
+}
+
+async function readCommunityRankings() {
+  try {
+    const raw = await fs.readFile(COMMUNITY_RANKINGS_FILE, "utf8");
+    const data = JSON.parse(raw);
+    return Array.isArray(data.rankings) ? data.rankings.map(normalizeCommunityRankingItem).filter((item) => item.shopName) : [];
+  } catch (error) {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+async function writeCommunityRankings(rankings) {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.writeFile(COMMUNITY_RANKINGS_FILE, JSON.stringify({ rankings }, null, 2), "utf8");
+}
+
+function sortCommunityRankings(rankings) {
+  return rankings
+    .slice()
+    .sort((a, b) => b.totalScore - a.totalScore || b.voteCount - a.voteCount || a.shopName.localeCompare(b.shopName, "ko"))
+    .map((item, index) => ({ ...item, rank: index + 1 }));
+}
+
+function kstDateParts(date = new Date()) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  });
+  const parts = Object.fromEntries(formatter.formatToParts(date).map((part) => [part.type, part.value]));
+  return {
+    year: Number(parts.year),
+    month: Number(parts.month),
+    day: Number(parts.day)
+  };
+}
+
+function kstDateOnly(date = new Date()) {
+  const { year, month, day } = kstDateParts(date);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function getKstWeekRange(date = new Date()) {
+  const today = kstDateOnly(date);
+  const day = today.getUTCDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  const start = new Date(today);
+  start.setUTCDate(today.getUTCDate() + mondayOffset);
+  const end = new Date(start);
+  end.setUTCDate(start.getUTCDate() + 7);
+  return { start, end };
+}
+
+function getSixMonthCutoff(date = new Date()) {
+  const { year, month, day } = kstDateParts(date);
+  return new Date(Date.UTC(year, month - 7, day));
+}
+
+function buildCommunityRankingChart(rankings, now = new Date()) {
+  const cutoff = getSixMonthCutoff(now);
+  return rankings
+    .map((item) => {
+      const activeVotes = (item.votes || []).filter((vote) => new Date(vote.votedAt) >= cutoff);
+      return {
+        id: item.id,
+        category: item.category,
+        subcategory: item.subcategory,
+        shopName: item.shopName,
+        totalScore: activeVotes.reduce((sum, vote) => sum + Number(vote.score || 0), 0),
+        voteCount: activeVotes.length,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt
+      };
+    })
+    .filter((item) => item.totalScore > 0)
+    .sort((a, b) => b.totalScore - a.totalScore || b.voteCount - a.voteCount || a.shopName.localeCompare(b.shopName, "ko"))
+    .map((item, index) => ({ ...item, rank: index + 1 }));
+}
+
+async function handleCommunityRankings(req, res) {
+  try {
+    const category = String(req.searchParams.get("category") || "빵류").trim();
+    const subcategory = String(req.searchParams.get("subcategory") || "단팥빵").trim();
+    const rankings = buildCommunityRankingChart(
+      (await readCommunityRankings())
+        .filter((item) => item.category === category && item.subcategory === subcategory)
+    ).slice(0, 100);
+    sendJson(res, 200, { rankings });
+  } catch (error) {
+    sendJson(res, 500, { error: error.message });
+  }
+}
+
+async function handleCommunityRankingScore(request, res) {
+  try {
+    const body = await readJsonBody(request);
+    const category = String(body.category || "빵류").trim();
+    const subcategory = String(body.subcategory || "단팥빵").trim();
+    const shopName = String(body.shopName || "").trim().slice(0, 60);
+    const score = Number(body.score || 0);
+    const voterId = normalizeUserId(body.userId);
+
+    if (category !== "빵류" || !communityBreadSubcategories.includes(subcategory)) {
+      return sendJson(res, 400, { error: "빵류 소분류만 랭킹 투표를 할 수 있습니다." });
+    }
+    if (!voterId) return sendJson(res, 401, { error: "로그인한 회원만 투표할 수 있습니다." });
+    const users = await readCommunityUsers();
+    if (!users.some((user) => user.userId === voterId)) return sendJson(res, 401, { error: "로그인 정보를 다시 확인해주세요." });
+    if (!shopName) return sendJson(res, 400, { error: "상점명을 입력해주세요." });
+    if (!Number.isInteger(score) || score < 1 || score > 10) return sendJson(res, 400, { error: "점수는 1점부터 10점까지 입력해주세요." });
+
+    const rankings = await readCommunityRankings();
+    const { start, end } = getKstWeekRange();
+    const alreadyVoted = rankings.some((item) => (
+      item.category === category &&
+      item.subcategory === subcategory &&
+      (item.votes || []).some((vote) => {
+        const votedAt = new Date(vote.votedAt);
+        return vote.userId === voterId && votedAt >= start && votedAt < end;
+      })
+    ));
+    if (alreadyVoted) return sendJson(res, 409, { error: "이번 주에는 해당 소분류에 이미 투표했습니다. 다음 주에 다시 투표해주세요." });
+
+    const normalizedName = shopName.replace(/\s+/g, "").toLowerCase();
+    const existing = rankings.find((item) => (
+      item.category === category &&
+      item.subcategory === subcategory &&
+      item.shopName.replace(/\s+/g, "").toLowerCase() === normalizedName
+    ));
+    const now = new Date().toISOString();
+    if (existing) {
+      existing.votes = Array.isArray(existing.votes) ? existing.votes : [];
+      existing.votes.push({ userId: voterId, score, votedAt: now });
+      existing.updatedAt = now;
+    } else {
+      rankings.push({
+        id: Date.now(),
+        category,
+        subcategory,
+        shopName,
+        votes: [{ userId: voterId, score, votedAt: now }],
+        createdAt: now,
+        updatedAt: now
+      });
+    }
+    await writeCommunityRankings(rankings);
+
+    const chart = buildCommunityRankingChart(
+      rankings.filter((item) => item.category === category && item.subcategory === subcategory)
+    ).slice(0, 100);
+    sendJson(res, 200, { ok: true, rankings: chart });
+  } catch (error) {
+    sendJson(res, 500, { error: error.message });
+  }
+}
+
 async function handleCommunityPosts(req, res) {
   try {
     const category = String(req.searchParams.get("category") || "").trim();
@@ -2863,6 +3045,9 @@ const server = http.createServer(async (request, response) => {
   if (url.pathname === "/api/community/comments" && request.method === "POST") {
     return handleCommunityAddComment(request, response);
   }
+  if (url.pathname === "/api/community/rankings/score" && request.method === "POST") {
+    return handleCommunityRankingScore(request, response);
+  }
 
   if (request.method !== "GET") {
     response.writeHead(405, { "content-type": "text/plain; charset=utf-8" });
@@ -2873,6 +3058,7 @@ const server = http.createServer(async (request, response) => {
   if (url.pathname === "/admin") return serveAdminPage(response);
   if (url.pathname === "/api/admin/status") return handleAdminStatus(request, response);
   if (url.pathname === "/api/terminals") return handleTerminals(req, response);
+  if (url.pathname === "/api/community/rankings") return handleCommunityRankings(req, response);
   if (url.pathname === "/api/community/posts") return handleCommunityPosts(req, response);
   if (url.pathname === "/api/community/post") return handleCommunityPost(req, response);
   if (url.pathname === "/api/destinations") return handleDestinations(req, response);

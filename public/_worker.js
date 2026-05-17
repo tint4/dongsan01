@@ -23,13 +23,22 @@ const path = { extname(value) { const clean = String(value || "").split(/[?#]/)[
 let kobusRouteCache = null;
 const adminSessions = globalThis.__adminSessions || (globalThis.__adminSessions = new Map());
 const communityUsers = globalThis.__communityUsers || (globalThis.__communityUsers = []);
+const communityRankings = globalThis.__communityRankings || (globalThis.__communityRankings = []);
 const communityBreadSubcategories = [
   "단팥빵",
   "바게트",
   "베이글",
   "빵 오 쇼콜라",
   "브리오슈",
-  "소금빵"
+  "소금빵",
+  "소보로",
+  "앙버터",
+  "치아바타",
+  "카스테라",
+  "크루아상",
+  "크림빵",
+  "호밀빵",
+  "햄버거"
 ];
 const communityPosts = globalThis.__communityPosts || (globalThis.__communityPosts = createCommunitySeedPosts());
 
@@ -1349,6 +1358,119 @@ async function handleCommunityAddCommentWorker(request, res) {
   }
 }
 
+function sortCommunityRankingsWorker(items) {
+  return items
+    .slice()
+    .sort((a, b) => b.totalScore - a.totalScore || b.voteCount - a.voteCount || a.shopName.localeCompare(b.shopName, "ko"))
+    .map((item, index) => ({ ...item, rank: index + 1 }));
+}
+
+function getKstWeekRangeWorker(date = new Date()) {
+  const formatter = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" });
+  const parts = Object.fromEntries(formatter.formatToParts(date).map((part) => [part.type, part.value]));
+  const today = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day)));
+  const day = today.getUTCDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  const start = new Date(today);
+  start.setUTCDate(today.getUTCDate() + mondayOffset);
+  const end = new Date(start);
+  end.setUTCDate(start.getUTCDate() + 7);
+  return { start, end };
+}
+
+function getSixMonthCutoffWorker(date = new Date()) {
+  const formatter = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" });
+  const parts = Object.fromEntries(formatter.formatToParts(date).map((part) => [part.type, part.value]));
+  return new Date(Date.UTC(Number(parts.year), Number(parts.month) - 7, Number(parts.day)));
+}
+
+function buildCommunityRankingChartWorker(items, now = new Date()) {
+  const cutoff = getSixMonthCutoffWorker(now);
+  return items
+    .map((item) => {
+      const votes = Array.isArray(item.votes) ? item.votes : [];
+      const activeVotes = votes.filter((vote) => new Date(vote.votedAt) >= cutoff);
+      return {
+        id: item.id,
+        category: item.category,
+        subcategory: item.subcategory,
+        shopName: item.shopName,
+        totalScore: activeVotes.reduce((sum, vote) => sum + Number(vote.score || 0), 0),
+        voteCount: activeVotes.length,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt
+      };
+    })
+    .filter((item) => item.totalScore > 0)
+    .sort((a, b) => b.totalScore - a.totalScore || b.voteCount - a.voteCount || a.shopName.localeCompare(b.shopName, "ko"))
+    .map((item, index) => ({ ...item, rank: index + 1 }));
+}
+
+async function handleCommunityRankingsWorker(req, res) {
+  const category = String(req.searchParams.get("category") || "빵류").trim();
+  const subcategory = String(req.searchParams.get("subcategory") || "단팥빵").trim();
+  const rankings = buildCommunityRankingChartWorker(
+    communityRankings.filter((item) => item.category === category && item.subcategory === subcategory)
+  ).slice(0, 100);
+  return sendJson(res, 200, { rankings });
+}
+
+async function handleCommunityRankingScoreWorker(request, res) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const category = String(body.category || "빵류").trim();
+    const subcategory = String(body.subcategory || "단팥빵").trim();
+    const shopName = String(body.shopName || "").trim().slice(0, 60);
+    const score = Number(body.score || 0);
+    const voterId = normalizeCommunityUserId(body.userId);
+    if (category !== "빵류" || !communityBreadSubcategories.includes(subcategory)) return sendJson(res, 400, { error: "빵류 소분류만 랭킹 투표를 할 수 있습니다." });
+    if (!voterId) return sendJson(res, 401, { error: "로그인한 회원만 투표할 수 있습니다." });
+    if (!communityUsers.some((user) => user.userId === voterId)) return sendJson(res, 401, { error: "로그인 정보를 다시 확인해주세요." });
+    if (!shopName) return sendJson(res, 400, { error: "상점명을 입력해주세요." });
+    if (!Number.isInteger(score) || score < 1 || score > 10) return sendJson(res, 400, { error: "점수는 1점부터 10점까지 입력해주세요." });
+
+    const { start, end } = getKstWeekRangeWorker();
+    const alreadyVoted = communityRankings.some((item) => (
+      item.category === category &&
+      item.subcategory === subcategory &&
+      (item.votes || []).some((vote) => {
+        const votedAt = new Date(vote.votedAt);
+        return vote.userId === voterId && votedAt >= start && votedAt < end;
+      })
+    ));
+    if (alreadyVoted) return sendJson(res, 409, { error: "이번 주에는 해당 소분류에 이미 투표했습니다. 다음 주에 다시 투표해주세요." });
+
+    const normalizedName = shopName.replace(/\s+/g, "").toLowerCase();
+    const existing = communityRankings.find((item) => (
+      item.category === category &&
+      item.subcategory === subcategory &&
+      item.shopName.replace(/\s+/g, "").toLowerCase() === normalizedName
+    ));
+    const now = new Date().toISOString();
+    if (existing) {
+      existing.votes = Array.isArray(existing.votes) ? existing.votes : [];
+      existing.votes.push({ userId: voterId, score, votedAt: now });
+      existing.updatedAt = now;
+    } else {
+      communityRankings.push({
+        id: Date.now(),
+        category,
+        subcategory,
+        shopName,
+        votes: [{ userId: voterId, score, votedAt: now }],
+        createdAt: now,
+        updatedAt: now
+      });
+    }
+    const rankings = buildCommunityRankingChartWorker(
+      communityRankings.filter((item) => item.category === category && item.subcategory === subcategory)
+    ).slice(0, 100);
+    return sendJson(res, 200, { ok: true, rankings });
+  } catch (error) {
+    return sendJson(res, 500, { error: error.message });
+  }
+}
+
 async function handleTerminals(req, res) {
   try {
     const keyword = String(req.searchParams.get("q") || "").trim();
@@ -2508,8 +2630,10 @@ export default {
     if (url.pathname === "/api/community/login" && request.method === "POST") return runApi(handleCommunityLoginWorker, req, request);
     if (url.pathname === "/api/community/posts" && request.method === "POST") return runApi(handleCommunityCreatePostWorker, req, request);
     if (url.pathname === "/api/community/comments" && request.method === "POST") return runApi(handleCommunityAddCommentWorker, req, request);
+    if (url.pathname === "/api/community/rankings/score" && request.method === "POST") return runApi(handleCommunityRankingScoreWorker, req, request);
     if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
     if (url.pathname === "/api/admin/status") return runApi(handleAdminStatusWorker, req, request);
+    if (url.pathname === "/api/community/rankings") return runApi(handleCommunityRankingsWorker, req);
     if (url.pathname === "/api/community/posts") return runApi(handleCommunityPostsWorker, req);
     if (url.pathname === "/api/community/post") return runApi(handleCommunityPostWorker, req);
     if (url.pathname === "/api/terminals") return runApi(handleTerminals, req);
