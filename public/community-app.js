@@ -39,7 +39,8 @@ const newRankingBtn = document.querySelector("#newRankingBtn");
 const rankingForm = document.querySelector("#rankingForm");
 const rankingCancelBtn = document.querySelector("#rankingCancelBtn");
 const shopNameInput = document.querySelector("#shopNameInput");
-const scoreInput = document.querySelector("#scoreInput");
+const tasteScoreInput = document.querySelector("#tasteScoreInput");
+const priceScoreInput = document.querySelector("#priceScoreInput");
 const rankingMessage = document.querySelector("#rankingMessage");
 const rankingList = document.querySelector("#rankingList");
 
@@ -51,10 +52,12 @@ let isMember = Boolean(currentUser);
 const loginFailKey = "community-login-fails";
 const loginLockKey = "community-login-locked-until";
 
-scoreInput.innerHTML = Array.from({ length: 10 }, (_, index) => {
+const scoreOptions = Array.from({ length: 10 }, (_, index) => {
   const score = index + 1;
   return `<option value="${score}">${score}점</option>`;
 }).join("");
+tasteScoreInput.innerHTML = scoreOptions;
+priceScoreInput.innerHTML = scoreOptions;
 
 async function apiPost(path, payload) {
   const response = await fetch(path, {
@@ -201,7 +204,7 @@ function renderBoard() {
   newRankingBtn.disabled = !isActiveRankingEnabled() || !isMember;
   renderSubcategories();
   renderRankings().catch((error) => {
-    rankingList.innerHTML = `<tr><td colspan="5">${escapeHtml(error.message)}</td></tr>`;
+    rankingList.innerHTML = `<tr><td colspan="7">${escapeHtml(error.message)}</td></tr>`;
   });
   updateMemberUi();
 }
@@ -222,6 +225,8 @@ async function renderRankings(providedRankings) {
       <tr class="${item ? "" : "ranking-empty-row"}">
         <td>${rank}</td>
         <td>${shopName ? escapeHtml(shopName) : ""}</td>
+        <td>${item ? Number(item.tasteScore || 0) : ""}</td>
+        <td>${item ? Number(item.priceScore || 0) : ""}</td>
         <td>${item ? Number(item.totalScore || 0) : ""}</td>
         <td>${item ? Number(item.voteCount || 0) : ""}</td>
         <td>
@@ -247,10 +252,11 @@ function showRankingForm(shopName = "") {
   rankingForm.hidden = false;
   shopNameInput.value = shopName;
   shopNameInput.readOnly = Boolean(shopName);
-  scoreInput.value = "10";
+  tasteScoreInput.value = "10";
+  priceScoreInput.value = "10";
   setRankingMessage(shopName ? `${shopName}에 점수를 추가합니다.` : "신규 상점명을 입력하면 차트에 등록됩니다.");
   if (shopName) {
-    scoreInput.focus();
+    tasteScoreInput.focus();
   } else {
     shopNameInput.focus();
   }
@@ -281,7 +287,8 @@ rankingForm.addEventListener("submit", async (event) => {
       category: currentCategory,
       subcategory: currentSubcategory,
       shopName: editingShopName || shopNameInput.value,
-      score: Number(scoreInput.value),
+      tasteScore: Number(tasteScoreInput.value),
+      priceScore: Number(priceScoreInput.value),
       userId: currentUser?.userId || ""
     });
     rankingForm.hidden = true;

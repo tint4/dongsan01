@@ -1395,7 +1395,11 @@ function buildCommunityRankingChartWorker(items, now = new Date()) {
         category: item.category,
         subcategory: item.subcategory,
         shopName: item.shopName,
-        totalScore: activeVotes.reduce((sum, vote) => sum + Number(vote.score || 0), 0),
+        tasteScore: activeVotes.reduce((sum, vote) => sum + Number(vote.tasteScore ?? vote.score ?? 0), 0),
+        priceScore: activeVotes.reduce((sum, vote) => sum + Number(vote.priceScore || 0), 0),
+        totalScore: activeVotes.reduce((sum, vote) => {
+          return sum + Number(vote.tasteScore ?? vote.score ?? 0) + Number(vote.priceScore || 0);
+        }, 0),
         voteCount: activeVotes.length,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt
@@ -1421,12 +1425,14 @@ async function handleCommunityRankingScoreWorker(request, res) {
     const category = String(body.category || "빵류").trim();
     const subcategory = String(body.subcategory || "단팥빵").trim();
     const shopName = String(body.shopName || "").trim().slice(0, 60);
-    const score = Number(body.score || 0);
+    const tasteScore = Number(body.tasteScore || 0);
+    const priceScore = Number(body.priceScore || 0);
     const voterId = normalizeCommunityUserId(body.userId);
     if (!category || !subcategory) return sendJson(res, 400, { error: "분류를 확인해주세요." });
     if (!voterId) return sendJson(res, 401, { error: "로그인한 회원만 투표할 수 있습니다." });
     if (!shopName) return sendJson(res, 400, { error: "상점명을 입력해주세요." });
-    if (!Number.isInteger(score) || score < 1 || score > 10) return sendJson(res, 400, { error: "점수는 1점부터 10점까지 입력해주세요." });
+    if (!Number.isInteger(tasteScore) || tasteScore < 1 || tasteScore > 10) return sendJson(res, 400, { error: "맛 점수는 1점부터 10점까지 입력해주세요." });
+    if (!Number.isInteger(priceScore) || priceScore < 1 || priceScore > 10) return sendJson(res, 400, { error: "가격 점수는 1점부터 10점까지 입력해주세요." });
 
     const { start, end } = getKstWeekRangeWorker();
     const alreadyVoted = communityRankings.some((item) => (
@@ -1448,7 +1454,7 @@ async function handleCommunityRankingScoreWorker(request, res) {
     const now = new Date().toISOString();
     if (existing) {
       existing.votes = Array.isArray(existing.votes) ? existing.votes : [];
-      existing.votes.push({ userId: voterId, score, votedAt: now });
+      existing.votes.push({ userId: voterId, tasteScore, priceScore, votedAt: now });
       existing.updatedAt = now;
     } else {
       communityRankings.push({
@@ -1456,7 +1462,7 @@ async function handleCommunityRankingScoreWorker(request, res) {
         category,
         subcategory,
         shopName,
-        votes: [{ userId: voterId, score, votedAt: now }],
+        votes: [{ userId: voterId, tasteScore, priceScore, votedAt: now }],
         createdAt: now,
         updatedAt: now
       });

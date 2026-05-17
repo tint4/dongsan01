@@ -1653,7 +1653,8 @@ function normalizeCommunityRankingItem(item) {
   if (!Array.isArray(item.votes) && Number(item.totalScore || 0) > 0) {
     legacyVotes.push({
       userId: "legacy",
-      score: Number(item.totalScore || 0),
+      tasteScore: Number(item.tasteScore || item.totalScore || 0),
+      priceScore: Number(item.priceScore || 0),
       votedAt: item.updatedAt || item.createdAt || new Date().toISOString()
     });
   }
@@ -1664,9 +1665,13 @@ function normalizeCommunityRankingItem(item) {
     shopName: String(item.shopName || "").trim(),
     votes: Array.isArray(item.votes) ? item.votes.map((vote) => ({
       userId: normalizeUserId(vote.userId || "unknown"),
-      score: Number(vote.score || 0),
+      tasteScore: Number(vote.tasteScore ?? vote.score ?? 0),
+      priceScore: Number(vote.priceScore ?? 0),
       votedAt: vote.votedAt || item.updatedAt || item.createdAt || new Date().toISOString()
-    })).filter((vote) => vote.score >= 1 && vote.score <= 10) : legacyVotes,
+    })).filter((vote) => (
+      vote.tasteScore >= 1 && vote.tasteScore <= 10 &&
+      vote.priceScore >= 0 && vote.priceScore <= 10
+    )) : legacyVotes,
     createdAt: item.createdAt || new Date().toISOString(),
     updatedAt: item.updatedAt || new Date().toISOString()
   };
@@ -1741,7 +1746,11 @@ function buildCommunityRankingChart(rankings, now = new Date()) {
         category: item.category,
         subcategory: item.subcategory,
         shopName: item.shopName,
-        totalScore: activeVotes.reduce((sum, vote) => sum + Number(vote.score || 0), 0),
+        tasteScore: activeVotes.reduce((sum, vote) => sum + Number(vote.tasteScore || 0), 0),
+        priceScore: activeVotes.reduce((sum, vote) => sum + Number(vote.priceScore || 0), 0),
+        totalScore: activeVotes.reduce((sum, vote) => {
+          return sum + Number(vote.tasteScore || 0) + Number(vote.priceScore || 0);
+        }, 0),
         voteCount: activeVotes.length,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt
@@ -1772,7 +1781,8 @@ async function handleCommunityRankingScore(request, res) {
     const category = String(body.category || "빵류").trim();
     const subcategory = String(body.subcategory || "단팥빵").trim();
     const shopName = String(body.shopName || "").trim().slice(0, 60);
-    const score = Number(body.score || 0);
+    const tasteScore = Number(body.tasteScore || 0);
+    const priceScore = Number(body.priceScore || 0);
     const voterId = normalizeUserId(body.userId);
 
     if (category !== "빵류" || !communityBreadSubcategories.includes(subcategory)) {
@@ -1782,7 +1792,8 @@ async function handleCommunityRankingScore(request, res) {
     const users = await readCommunityUsers();
     if (!users.some((user) => user.userId === voterId)) return sendJson(res, 401, { error: "로그인 정보를 다시 확인해주세요." });
     if (!shopName) return sendJson(res, 400, { error: "상점명을 입력해주세요." });
-    if (!Number.isInteger(score) || score < 1 || score > 10) return sendJson(res, 400, { error: "점수는 1점부터 10점까지 입력해주세요." });
+    if (!Number.isInteger(tasteScore) || tasteScore < 1 || tasteScore > 10) return sendJson(res, 400, { error: "맛 점수는 1점부터 10점까지 입력해주세요." });
+    if (!Number.isInteger(priceScore) || priceScore < 1 || priceScore > 10) return sendJson(res, 400, { error: "가격 점수는 1점부터 10점까지 입력해주세요." });
 
     const rankings = await readCommunityRankings();
     const { start, end } = getKstWeekRange();
@@ -1805,7 +1816,7 @@ async function handleCommunityRankingScore(request, res) {
     const now = new Date().toISOString();
     if (existing) {
       existing.votes = Array.isArray(existing.votes) ? existing.votes : [];
-      existing.votes.push({ userId: voterId, score, votedAt: now });
+      existing.votes.push({ userId: voterId, tasteScore, priceScore, votedAt: now });
       existing.updatedAt = now;
     } else {
       rankings.push({
@@ -1813,7 +1824,7 @@ async function handleCommunityRankingScore(request, res) {
         category,
         subcategory,
         shopName,
-        votes: [{ userId: voterId, score, votedAt: now }],
+        votes: [{ userId: voterId, tasteScore, priceScore, votedAt: now }],
         createdAt: now,
         updatedAt: now
       });
