@@ -39,6 +39,7 @@ const newRankingBtn = document.querySelector("#newRankingBtn");
 const rankingForm = document.querySelector("#rankingForm");
 const rankingCancelBtn = document.querySelector("#rankingCancelBtn");
 const shopNameInput = document.querySelector("#shopNameInput");
+const mapUrlInput = document.querySelector("#mapUrlInput");
 const tasteScoreInput = document.querySelector("#tasteScoreInput");
 const priceScoreInput = document.querySelector("#priceScoreInput");
 const rankingMessage = document.querySelector("#rankingMessage");
@@ -202,12 +203,12 @@ function renderBoard() {
   } else if (!isMember) {
     setRankingMessage("로그인한 회원만 신규등록과 점수주기를 할 수 있습니다.");
   } else {
-    setRankingMessage("각 소분류는 월요일부터 일요일까지 회원 1명당 1회만 투표할 수 있습니다.");
+    setRankingMessage("각 소분류는 월요일부터 일요일까지 회원 1명당 3번까지 점수를 줄 수 있고, 같은 상점에는 다시 점수를 줄 수 없습니다.");
   }
   newRankingBtn.disabled = !isActiveRankingEnabled() || !isMember;
   renderSubcategories();
   renderRankings().catch((error) => {
-    rankingList.innerHTML = `<tr><td colspan="7">${escapeHtml(error.message)}</td></tr>`;
+    rankingList.innerHTML = `<tr><td colspan="8">${escapeHtml(error.message)}</td></tr>`;
   });
   updateMemberUi();
 }
@@ -251,28 +252,30 @@ async function renderRankings(providedRankings) {
     const rank = index + 1;
     const item = byRank.get(rank);
     const shopName = item?.shopName || "";
+    const mapUrl = item?.mapUrl || "";
     const disabled = !item || !isActiveRankingEnabled() || !isMember ? "disabled" : "";
     return `
       <tr class="${item ? "" : "ranking-empty-row"}">
         <td>${rank}</td>
         <td>${shopName ? escapeHtml(shopName) : ""}</td>
+        <td>${mapUrl ? `<a class="map-link-icon" href="${escapeHtml(mapUrl)}" target="_blank" rel="noopener" aria-label="네이버 지도 열기">지도</a>` : ""}</td>
         <td class="total-score-cell">${item ? Number(item.totalScore || 0) : ""}</td>
         <td>${item ? Number(item.tasteScore || 0) : ""}</td>
         <td>${item ? Number(item.priceScore || 0) : ""}</td>
         <td>${item ? Number(item.voteCount || 0) : ""}</td>
         <td>
-          ${item ? `<button type="button" class="score-shop-btn" data-shop="${escapeHtml(shopName)}" ${disabled}>점수주기</button>` : ""}
+          ${item ? `<button type="button" class="score-shop-btn" data-shop="${escapeHtml(shopName)}" data-map="${escapeHtml(mapUrl)}" ${disabled}>점수주기</button>` : ""}
         </td>
       </tr>
     `;
   }).join("");
 
   rankingList.querySelectorAll(".score-shop-btn").forEach((button) => {
-    button.addEventListener("click", () => showRankingForm(button.dataset.shop));
+    button.addEventListener("click", () => showRankingForm(button.dataset.shop, button.dataset.map || ""));
   });
 }
 
-function showRankingForm(shopName = "") {
+function showRankingForm(shopName = "", mapUrl = "") {
   if (!isActiveRankingEnabled()) return;
   if (!isMember) {
     setRankingMessage("로그인한 회원만 투표할 수 있습니다.", true);
@@ -282,6 +285,7 @@ function showRankingForm(shopName = "") {
   editingShopName = shopName;
   rankingForm.hidden = false;
   shopNameInput.value = shopName;
+  mapUrlInput.value = mapUrl;
   shopNameInput.readOnly = Boolean(shopName);
   tasteScoreInput.value = "10";
   priceScoreInput.value = "10";
@@ -307,7 +311,7 @@ rankSortButtons.forEach((button) => {
     currentSortKey = button.dataset.sort || "totalScore";
     currentSortDirection = button.dataset.direction || "desc";
     renderRankings().catch((error) => {
-      rankingList.innerHTML = `<tr><td colspan="7">${escapeHtml(error.message)}</td></tr>`;
+      rankingList.innerHTML = `<tr><td colspan="8">${escapeHtml(error.message)}</td></tr>`;
     });
   });
 });
@@ -318,6 +322,7 @@ rankingCancelBtn.addEventListener("click", () => {
   rankingForm.hidden = true;
   editingShopName = "";
   shopNameInput.readOnly = false;
+  mapUrlInput.value = "";
   setRankingMessage("");
 });
 
@@ -328,6 +333,7 @@ rankingForm.addEventListener("submit", async (event) => {
       category: currentCategory,
       subcategory: currentSubcategory,
       shopName: editingShopName || shopNameInput.value,
+      mapUrl: mapUrlInput.value,
       tasteScore: Number(tasteScoreInput.value),
       priceScore: Number(priceScoreInput.value),
       userId: currentUser?.userId || ""
@@ -335,7 +341,8 @@ rankingForm.addEventListener("submit", async (event) => {
     rankingForm.hidden = true;
     editingShopName = "";
     shopNameInput.readOnly = false;
-    setRankingMessage("점수가 반영되었습니다.");
+    mapUrlInput.value = "";
+    setRankingMessage(data.message || "점수가 반영되었습니다.");
     await renderRankings(data.rankings || []);
   } catch (error) {
     setRankingMessage(error.message, true);

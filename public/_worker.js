@@ -1395,6 +1395,7 @@ function buildCommunityRankingChartWorker(items, now = new Date()) {
         category: item.category,
         subcategory: item.subcategory,
         shopName: item.shopName,
+        mapUrl: item.mapUrl || "",
         tasteScore: activeVotes.reduce((sum, vote) => sum + Number(vote.tasteScore ?? vote.score ?? 0), 0),
         priceScore: activeVotes.reduce((sum, vote) => sum + Number(vote.priceScore || 0), 0),
         totalScore: activeVotes.reduce((sum, vote) => {
@@ -1408,6 +1409,56 @@ function buildCommunityRankingChartWorker(items, now = new Date()) {
     .filter((item) => item.totalScore > 0)
     .sort((a, b) => b.totalScore - a.totalScore || b.voteCount - a.voteCount || a.shopName.localeCompare(b.shopName, "ko"))
     .map((item, index) => ({ ...item, rank: index + 1 }));
+}
+
+function normalizeNaverMapUrlWorker(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const url = new URL(raw);
+    if (!/^https?:$/.test(url.protocol)) return "";
+    const host = url.hostname.toLowerCase();
+    if (!/(^|\.)naver\.com$|(^|\.)naver\.me$/.test(host)) return "";
+    return url.href;
+  } catch (error) {
+    return "";
+  }
+}
+
+function cleanNaverMapTitleWorker(value) {
+  return String(value || "")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/\s*[:|-]?\s*네이버\s*지도\s*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 60);
+}
+
+async function resolveNaverMapShopNameWorker(mapUrl) {
+  const safeUrl = normalizeNaverMapUrlWorker(mapUrl);
+  if (!safeUrl) return "";
+  const fromUrl = (() => {
+    try {
+      const url = new URL(safeUrl);
+      const match = decodeURIComponent(url.pathname).match(/\/search\/([^/?#]+)/);
+      return match ? cleanNaverMapTitleWorker(match[1]) : "";
+    } catch (error) {
+      return "";
+    }
+  })();
+  try {
+    const response = await fetch(safeUrl, { headers: { "user-agent": USER_AGENT }, redirect: "follow" });
+    const text = await response.text();
+    const title = [
+      (text.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i) || [])[1],
+      (text.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1]
+    ].map(cleanNaverMapTitleWorker).filter(Boolean)[0];
+    return title || fromUrl;
+  } catch (error) {
+    return fromUrl;
+  }
 }
 
 async function handleCommunityRankingsWorker(req, res) {
@@ -1424,37 +1475,62 @@ async function handleCommunityRankingScoreWorker(request, res) {
     const body = await request.json().catch(() => ({}));
     const category = String(body.category || "빵류").trim();
     const subcategory = String(body.subcategory || "단팥빵").trim();
-    const shopName = String(body.shopName || "").trim().slice(0, 60);
+    let shopName = String(body.shopName || "").trim().slice(0, 60);
+    const mapUrl = normalizeNaverMapUrlWorker(body.mapUrl || "");
     const tasteScore = Number(body.tasteScore || 0);
     const priceScore = Number(body.priceScore || 0);
     const voterId = normalizeCommunityUserId(body.userId);
     if (!category || !subcategory) return sendJson(res, 400, { error: "분류를 확인해주세요." });
     if (!voterId) return sendJson(res, 401, { error: "로그인한 회원만 투표할 수 있습니다." });
-    if (!shopName) return sendJson(res, 400, { error: "상점명을 입력해주세요." });
+    if (!shopName && mapUrl) shopName = await resolveNaverMapShopNameWorker(mapUrl);
+    if (!shopName) return sendJson(res, 400, { error: "상점명을 입력하거나 네이버 지도 URL을 입력해주세요." });
     if (!Number.isInteger(tasteScore) || tasteScore < 1 || tasteScore > 10) return sendJson(res, 400, { error: "맛 점수는 1점부터 10점까지 입력해주세요." });
     if (!Number.isInteger(priceScore) || priceScore < 1 || priceScore > 10) return sendJson(res, 400, { error: "가격 점수는 1점부터 10점까지 입력해주세요." });
 
     const { start, end } = getKstWeekRangeWorker();
-    const alreadyVoted = communityRankings.some((item) => (
-      item.category === category &&
-      item.subcategory === subcategory &&
-      (item.votes || []).some((vote) => {
+    const normalizedName = shopName.replace(/\s+/g, "").toLowerCase();
+    const weeklyVotes = communityRankings
+      .filter((item) => item.category === category && item.subcategory === subcategory)
+      .flatMap((item) => (item.votes || []).map((vote) => ({
+        vote,
+        shopKey: item.shopName.replace(/\s+/g, "").toLowerCase()
+      })))
+      .filter(({ vote }) => {
         const votedAt = new Date(vote.votedAt);
         return vote.userId === voterId && votedAt >= start && votedAt < end;
-      })
-    ));
-    if (alreadyVoted) return sendJson(res, 409, { error: "이번 주에는 해당 소분류에 이미 투표했습니다. 다음 주에 다시 투표해주세요." });
-
-    const normalizedName = shopName.replace(/\s+/g, "").toLowerCase();
+      });
     const existing = communityRankings.find((item) => (
       item.category === category &&
       item.subcategory === subcategory &&
       item.shopName.replace(/\s+/g, "").toLowerCase() === normalizedName
     ));
+    if (weeklyVotes.some((item) => item.shopKey === normalizedName)) {
+      if (existing && mapUrl && !existing.mapUrl) {
+        existing.mapUrl = mapUrl;
+        existing.updatedAt = new Date().toISOString();
+        const rankings = buildCommunityRankingChartWorker(
+          communityRankings.filter((item) => item.category === category && item.subcategory === subcategory)
+        ).slice(0, 100);
+        return sendJson(res, 200, { ok: true, mapOnly: true, rankings, message: "이미 점수를 준 상점이라 점수는 추가하지 않고 지도 URL만 저장했습니다." });
+      }
+      return sendJson(res, 409, { error: "이번 주에 이미 점수를 준 상점입니다. 같은 상점에는 다시 점수를 줄 수 없습니다." });
+    }
+    if (weeklyVotes.length >= 3) {
+      if (existing && mapUrl && !existing.mapUrl) {
+        existing.mapUrl = mapUrl;
+        existing.updatedAt = new Date().toISOString();
+        const rankings = buildCommunityRankingChartWorker(
+          communityRankings.filter((item) => item.category === category && item.subcategory === subcategory)
+        ).slice(0, 100);
+        return sendJson(res, 200, { ok: true, mapOnly: true, rankings, message: "이번 주 투표 횟수는 초과되어 점수는 추가하지 않고 지도 URL만 저장했습니다." });
+      }
+      return sendJson(res, 409, { error: "이번 주에는 해당 소분류에 3번까지 점수를 줄 수 있습니다. 다음 주에 다시 투표해주세요." });
+    }
     const now = new Date().toISOString();
     if (existing) {
       existing.votes = Array.isArray(existing.votes) ? existing.votes : [];
       existing.votes.push({ userId: voterId, tasteScore, priceScore, votedAt: now });
+      if (mapUrl) existing.mapUrl = mapUrl;
       existing.updatedAt = now;
     } else {
       communityRankings.push({
@@ -1462,6 +1538,7 @@ async function handleCommunityRankingScoreWorker(request, res) {
         category,
         subcategory,
         shopName,
+        mapUrl,
         votes: [{ userId: voterId, tasteScore, priceScore, votedAt: now }],
         createdAt: now,
         updatedAt: now
