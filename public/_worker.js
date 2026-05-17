@@ -1425,7 +1425,6 @@ async function handleCommunityRankingScoreWorker(request, res) {
     const voterId = normalizeCommunityUserId(body.userId);
     if (!category || !subcategory) return sendJson(res, 400, { error: "분류를 확인해주세요." });
     if (!voterId) return sendJson(res, 401, { error: "로그인한 회원만 투표할 수 있습니다." });
-    if (!communityUsers.some((user) => user.userId === voterId)) return sendJson(res, 401, { error: "로그인 정보를 다시 확인해주세요." });
     if (!shopName) return sendJson(res, 400, { error: "상점명을 입력해주세요." });
     if (!Number.isInteger(score) || score < 1 || score > 10) return sendJson(res, 400, { error: "점수는 1점부터 10점까지 입력해주세요." });
 
