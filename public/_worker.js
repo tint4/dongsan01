@@ -1227,13 +1227,14 @@ async function handleAdminLogoutWorker(request, res) {
 async function handleAdminStatusWorker(request, res) {
   if (!isAdminRequest(request)) return sendJson(res, 200, { loggedIn: false });
   const userCount = await countCommunityUsersWorker(request.env);
+  const posts = await readCommunityPostsWorker("", "", request.env);
   return sendJson(res, 200, {
     loggedIn: true,
     userId: ADMIN_ID,
     counts: {
       users: userCount,
-      posts: communityPosts.length,
-      comments: communityPosts.reduce((sum, post) => sum + (post.comments || []).length, 0)
+      posts: posts.length,
+      comments: posts.reduce((sum, post) => sum + (post.comments || []).length, 0)
     }
   });
 }
@@ -1305,6 +1306,220 @@ async function countCommunityUsersWorker(env) {
   return Number(row?.count || 0);
 }
 
+async function ensureCommunityRankingTables(env) {
+  const db = getCommunityDb(env);
+  if (!db) return null;
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS community_rankings (
+      id INTEGER PRIMARY KEY,
+      category TEXT NOT NULL,
+      subcategory TEXT NOT NULL,
+      shop_name TEXT NOT NULL,
+      map_url TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `).run();
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS community_ranking_votes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ranking_id INTEGER NOT NULL,
+      user_id TEXT NOT NULL,
+      taste_score INTEGER NOT NULL,
+      price_score INTEGER NOT NULL,
+      voted_at TEXT NOT NULL
+    )
+  `).run();
+  return db;
+}
+
+function communityShopKey(value) {
+  return String(value || "").replace(/\s+/g, "").toLowerCase();
+}
+
+async function readCommunityRankingsWorker(category, subcategory, env) {
+  const db = await ensureCommunityRankingTables(env);
+  if (!db) return communityRankings.filter((item) => item.category === category && item.subcategory === subcategory);
+  const rows = await db.prepare(`
+    SELECT
+      r.id, r.category, r.subcategory, r.shop_name AS shopName, r.map_url AS mapUrl,
+      r.created_at AS createdAt, r.updated_at AS updatedAt,
+      v.user_id AS userId, v.taste_score AS tasteScore, v.price_score AS priceScore, v.voted_at AS votedAt
+    FROM community_rankings r
+    LEFT JOIN community_ranking_votes v ON v.ranking_id = r.id
+    WHERE r.category = ? AND r.subcategory = ?
+    ORDER BY r.id ASC, v.id ASC
+  `).bind(category, subcategory).all();
+  const byId = new Map();
+  for (const row of rows.results || []) {
+    if (!byId.has(row.id)) {
+      byId.set(row.id, {
+        id: row.id,
+        category: row.category,
+        subcategory: row.subcategory,
+        shopName: row.shopName,
+        mapUrl: row.mapUrl || "",
+        votes: [],
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt
+      });
+    }
+    if (row.userId) {
+      byId.get(row.id).votes.push({
+        userId: row.userId,
+        tasteScore: Number(row.tasteScore || 0),
+        priceScore: Number(row.priceScore || 0),
+        votedAt: row.votedAt
+      });
+    }
+  }
+  return [...byId.values()];
+}
+
+async function updateCommunityRankingMapUrlWorker(id, mapUrl, env) {
+  const db = await ensureCommunityRankingTables(env);
+  if (!db) return false;
+  await db.prepare("UPDATE community_rankings SET map_url = ?, updated_at = ? WHERE id = ?")
+    .bind(mapUrl, new Date().toISOString(), id)
+    .run();
+  return true;
+}
+
+async function addCommunityRankingVoteWorker(item, vote, env) {
+  const db = await ensureCommunityRankingTables(env);
+  if (!db) return false;
+  const now = item.updatedAt || new Date().toISOString();
+  let rankingId = item.id;
+  if (!rankingId) {
+    rankingId = Date.now();
+    await db.prepare(`
+      INSERT INTO community_rankings (id, category, subcategory, shop_name, map_url, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).bind(rankingId, item.category, item.subcategory, item.shopName, item.mapUrl || "", now, now).run();
+  } else {
+    await db.prepare("UPDATE community_rankings SET map_url = ?, updated_at = ? WHERE id = ?")
+      .bind(item.mapUrl || "", now, rankingId)
+      .run();
+  }
+  await db.prepare(`
+    INSERT INTO community_ranking_votes (ranking_id, user_id, taste_score, price_score, voted_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).bind(rankingId, vote.userId, vote.tasteScore, vote.priceScore, vote.votedAt).run();
+  return true;
+}
+
+async function ensureCommunityPostTables(env) {
+  const db = getCommunityDb(env);
+  if (!db) return null;
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS community_posts (
+      id INTEGER PRIMARY KEY,
+      category TEXT NOT NULL,
+      subcategory TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      author TEXT NOT NULL,
+      views INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    )
+  `).run();
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS community_comments (
+      id INTEGER PRIMARY KEY,
+      post_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )
+  `).run();
+  return db;
+}
+
+async function readCommunityPostsWorker(category, subcategory, env) {
+  const db = await ensureCommunityPostTables(env);
+  if (!db) {
+    return communityPosts
+      .filter((post) => !category || post.category === category)
+      .filter((post) => !subcategory || post.subcategory === subcategory);
+  }
+  const rows = await db.prepare(`
+    SELECT p.*, COUNT(c.id) AS commentCount
+    FROM community_posts p
+    LEFT JOIN community_comments c ON c.post_id = p.id
+    WHERE (? = '' OR p.category = ?) AND (? = '' OR p.subcategory = ?)
+    GROUP BY p.id
+    ORDER BY p.id DESC
+  `).bind(category || "", category || "", subcategory || "", subcategory || "").all();
+  return (rows.results || []).map((row) => ({
+    id: row.id,
+    category: row.category,
+    subcategory: row.subcategory,
+    title: row.title,
+    body: row.body,
+    author: row.author,
+    views: Number(row.views || 0),
+    comments: Array.from({ length: Number(row.commentCount || 0) }),
+    createdAt: row.created_at
+  }));
+}
+
+async function readCommunityPostWorker(id, env, incrementViews = false) {
+  const db = await ensureCommunityPostTables(env);
+  if (!db) {
+    const post = communityPosts.find((item) => Number(item.id) === Number(id));
+    if (post && incrementViews) post.views = Number(post.views || 0) + 1;
+    return post || null;
+  }
+  if (incrementViews) await db.prepare("UPDATE community_posts SET views = views + 1 WHERE id = ?").bind(id).run();
+  const row = await db.prepare("SELECT * FROM community_posts WHERE id = ?").bind(id).first();
+  if (!row) return null;
+  const comments = await db.prepare("SELECT * FROM community_comments WHERE post_id = ? ORDER BY id ASC").bind(id).all();
+  return {
+    id: row.id,
+    category: row.category,
+    subcategory: row.subcategory,
+    title: row.title,
+    body: row.body,
+    author: row.author,
+    views: Number(row.views || 0),
+    comments: (comments.results || []).map((comment) => ({
+      id: comment.id,
+      name: comment.name,
+      body: comment.body,
+      createdAt: comment.created_at
+    })),
+    createdAt: row.created_at
+  };
+}
+
+async function createCommunityPostWorker(post, env) {
+  const db = await ensureCommunityPostTables(env);
+  if (!db) {
+    communityPosts.push(post);
+    return post;
+  }
+  await db.prepare(`
+    INSERT INTO community_posts (id, category, subcategory, title, body, author, views, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(post.id, post.category, post.subcategory, post.title, post.body, post.author, post.views, post.createdAt).run();
+  return post;
+}
+
+async function addCommunityCommentWorker(postId, comment, env) {
+  const db = await ensureCommunityPostTables(env);
+  if (!db) {
+    const post = communityPosts.find((item) => Number(item.id) === Number(postId));
+    if (!post) return null;
+    post.comments.push(comment);
+    return post;
+  }
+  await db.prepare(`
+    INSERT INTO community_comments (id, post_id, name, body, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).bind(comment.id, postId, comment.name, comment.body, comment.createdAt).run();
+  return readCommunityPostWorker(postId, env, false);
+}
+
 async function hashCommunityPasswordWorker(password, salt) {
   const bytes = new TextEncoder().encode(`${salt}:${password}`);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -1350,18 +1565,15 @@ async function handleCommunityLoginWorker(request, res) {
 async function handleCommunityPostsWorker(req, res) {
   const category = String(req.searchParams.get("category") || "").trim();
   const subcategory = String(req.searchParams.get("subcategory") || "").trim();
-  const posts = communityPosts
-    .filter((post) => !category || post.category === category)
-    .filter((post) => !subcategory || post.subcategory === subcategory)
+  const posts = (await readCommunityPostsWorker(category, subcategory, req.env))
     .sort((a, b) => Number(b.id) - Number(a.id));
   return sendJson(res, 200, { posts });
 }
 
 async function handleCommunityPostWorker(req, res) {
   const id = Number(req.searchParams.get("id"));
-  const post = communityPosts.find((item) => Number(item.id) === id);
+  const post = await readCommunityPostWorker(id, req.env, true);
   if (!post) return sendJson(res, 404, { error: "게시글을 찾을 수 없습니다." });
-  post.views = Number(post.views || 0) + 1;
   return sendJson(res, 200, { post });
 }
 
@@ -1387,7 +1599,7 @@ async function handleCommunityCreatePostWorker(request, res) {
       comments: [],
       createdAt: new Date().toISOString()
     };
-    communityPosts.push(post);
+    await createCommunityPostWorker(post, request.env);
     return sendJson(res, 200, { ok: true, post });
   } catch (error) {
     return sendJson(res, 500, { error: error.message });
@@ -1397,20 +1609,21 @@ async function handleCommunityCreatePostWorker(request, res) {
 async function handleCommunityAddCommentWorker(request, res) {
   try {
     const body = await request.json().catch(() => ({}));
-    const post = communityPosts.find((item) => Number(item.id) === Number(body.postId));
+    const post = await readCommunityPostWorker(Number(body.postId), request.env, false);
     const commentBody = String(body.body || "").trim();
     const userId = normalizeCommunityUserId(body.userId);
     if (!post) return sendJson(res, 404, { error: "게시글을 찾을 수 없습니다." });
     if (!commentBody) return sendJson(res, 400, { error: "댓글 내용을 입력해주세요." });
     if (!userId) return sendJson(res, 401, { error: "로그인한 회원만 댓글을 쓸 수 있습니다." });
     if (!(await findCommunityUserWorker(userId, request.env))) return sendJson(res, 401, { error: "로그인 정보를 다시 확인해주세요." });
-    post.comments.push({
+    const comment = {
       id: Date.now(),
       name: String(body.name || "비회원").trim().slice(0, 20) || "비회원",
       body: commentBody,
       createdAt: new Date().toISOString()
-    });
-    return sendJson(res, 200, { ok: true, post });
+    };
+    const updatedPost = await addCommunityCommentWorker(post.id, comment, request.env);
+    return sendJson(res, 200, { ok: true, post: updatedPost });
   } catch (error) {
     return sendJson(res, 500, { error: error.message });
   }
@@ -1534,7 +1747,7 @@ async function handleCommunityRankingsWorker(req, res) {
   const category = String(req.searchParams.get("category") || "빵류").trim();
   const subcategory = String(req.searchParams.get("subcategory") || "단팥빵").trim();
   const rankings = buildCommunityRankingChartWorker(
-    communityRankings.filter((item) => item.category === category && item.subcategory === subcategory)
+    await readCommunityRankingsWorker(category, subcategory, req.env)
   ).slice(0, 100);
   return sendJson(res, 200, { rankings });
 }
@@ -1557,28 +1770,25 @@ async function handleCommunityRankingScoreWorker(request, res) {
     if (!Number.isInteger(priceScore) || priceScore < 1 || priceScore > 10) return sendJson(res, 400, { error: "가격 점수는 1점부터 10점까지 입력해주세요." });
 
     const { start, end } = getKstWeekRangeWorker();
-    const normalizedName = shopName.replace(/\s+/g, "").toLowerCase();
-    const weeklyVotes = communityRankings
-      .filter((item) => item.category === category && item.subcategory === subcategory)
+    const categoryRankings = await readCommunityRankingsWorker(category, subcategory, request.env);
+    const normalizedName = communityShopKey(shopName);
+    const weeklyVotes = categoryRankings
       .flatMap((item) => (item.votes || []).map((vote) => ({
         vote,
-        shopKey: item.shopName.replace(/\s+/g, "").toLowerCase()
+        shopKey: communityShopKey(item.shopName)
       })))
       .filter(({ vote }) => {
         const votedAt = new Date(vote.votedAt);
         return vote.userId === voterId && votedAt >= start && votedAt < end;
       });
-    const existing = communityRankings.find((item) => (
-      item.category === category &&
-      item.subcategory === subcategory &&
-      item.shopName.replace(/\s+/g, "").toLowerCase() === normalizedName
-    ));
+    const existing = categoryRankings.find((item) => communityShopKey(item.shopName) === normalizedName);
     if (weeklyVotes.some((item) => item.shopKey === normalizedName)) {
       if (existing && mapUrl && !existing.mapUrl) {
         existing.mapUrl = mapUrl;
         existing.updatedAt = new Date().toISOString();
+        await updateCommunityRankingMapUrlWorker(existing.id, mapUrl, request.env);
         const rankings = buildCommunityRankingChartWorker(
-          communityRankings.filter((item) => item.category === category && item.subcategory === subcategory)
+          await readCommunityRankingsWorker(category, subcategory, request.env)
         ).slice(0, 100);
         return sendJson(res, 200, { ok: true, mapOnly: true, rankings, message: "이미 점수를 준 상점이라 점수는 추가하지 않고 지도 URL만 저장했습니다." });
       }
@@ -1588,8 +1798,9 @@ async function handleCommunityRankingScoreWorker(request, res) {
       if (existing && mapUrl && !existing.mapUrl) {
         existing.mapUrl = mapUrl;
         existing.updatedAt = new Date().toISOString();
+        await updateCommunityRankingMapUrlWorker(existing.id, mapUrl, request.env);
         const rankings = buildCommunityRankingChartWorker(
-          communityRankings.filter((item) => item.category === category && item.subcategory === subcategory)
+          await readCommunityRankingsWorker(category, subcategory, request.env)
         ).slice(0, 100);
         return sendJson(res, 200, { ok: true, mapOnly: true, rankings, message: "이번 주 투표 횟수는 초과되어 점수는 추가하지 않고 지도 URL만 저장했습니다." });
       }
@@ -1597,25 +1808,29 @@ async function handleCommunityRankingScoreWorker(request, res) {
     }
     if (!(await findCommunityUserWorker(voterId, request.env))) return sendJson(res, 401, { error: "로그인 정보를 다시 확인해주세요." });
     const now = new Date().toISOString();
+    const vote = { userId: voterId, tasteScore, priceScore, votedAt: now };
     if (existing) {
       existing.votes = Array.isArray(existing.votes) ? existing.votes : [];
-      existing.votes.push({ userId: voterId, tasteScore, priceScore, votedAt: now });
+      existing.votes.push(vote);
       if (mapUrl) existing.mapUrl = mapUrl;
       existing.updatedAt = now;
+      await addCommunityRankingVoteWorker(existing, vote, request.env);
     } else {
-      communityRankings.push({
+      const item = {
         id: Date.now(),
         category,
         subcategory,
         shopName,
         mapUrl,
-        votes: [{ userId: voterId, tasteScore, priceScore, votedAt: now }],
+        votes: [vote],
         createdAt: now,
         updatedAt: now
-      });
+      };
+      communityRankings.push(item);
+      await addCommunityRankingVoteWorker(item, vote, request.env);
     }
     const rankings = buildCommunityRankingChartWorker(
-      communityRankings.filter((item) => item.category === category && item.subcategory === subcategory)
+      await readCommunityRankingsWorker(category, subcategory, request.env)
     ).slice(0, 100);
     return sendJson(res, 200, { ok: true, rankings });
   } catch (error) {
