@@ -454,6 +454,22 @@ select {
   text-align: left;
 }
 
+.board-table th,
+.board-table td {
+  text-align: center;
+}
+
+.board-table th:nth-child(2),
+.board-table td:nth-child(2) {
+  width: 44%;
+  text-align: left;
+}
+
+.board-table th:nth-child(3),
+.board-table td:nth-child(3) {
+  width: 14%;
+}
+
 .ranking-table th:nth-child(3),
 .ranking-table td:nth-child(3),
 .ranking-table th:nth-child(4),

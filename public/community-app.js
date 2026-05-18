@@ -45,6 +45,22 @@ const priceScoreInput = document.querySelector("#priceScoreInput");
 const rankingMessage = document.querySelector("#rankingMessage");
 const rankingList = document.querySelector("#rankingList");
 const rankSortButtons = [...document.querySelectorAll(".rank-sort-btn")];
+const rankingSection = document.querySelector("#rankingSection");
+const postSection = document.querySelector("#postSection");
+const newPostBtn = document.querySelector("#newPostBtn");
+const postForm = document.querySelector("#postForm");
+const postCancelBtn = document.querySelector("#postCancelBtn");
+const postTitleInput = document.querySelector("#postTitleInput");
+const postBodyInput = document.querySelector("#postBodyInput");
+const postList = document.querySelector("#postList");
+const postDetail = document.querySelector("#postDetail");
+const postDetailMeta = document.querySelector("#postDetailMeta");
+const postDetailTitle = document.querySelector("#postDetailTitle");
+const postDetailInfo = document.querySelector("#postDetailInfo");
+const postDetailBody = document.querySelector("#postDetailBody");
+const commentList = document.querySelector("#commentList");
+const commentForm = document.querySelector("#commentForm");
+const commentInput = document.querySelector("#commentInput");
 
 let currentCategory = "빵류";
 let currentSubcategory = "단팥빵";
@@ -92,8 +108,23 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+function formatDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  });
+}
+
 function isActiveRankingEnabled() {
   return currentCategory === "빵류" && breadSubcategories.includes(currentSubcategory);
+}
+
+function isFreeBoard() {
+  return currentCategory === "자유게시판";
 }
 
 function getLoginFailCount() {
@@ -197,15 +228,31 @@ function renderSubcategories() {
 
 function renderBoard() {
   boardTitle.textContent = currentCategory;
-  boardSummary.textContent = `${currentSubcategory} 랭킹 차트`;
+  boardSummary.textContent = isFreeBoard() ? "회원 글쓰기와 회원 댓글 게시판" : `${currentSubcategory} 랭킹 차트`;
   rankingForm.hidden = true;
+  postForm.hidden = true;
+  postDetail.hidden = true;
   editingShopName = "";
+  rankingSection.hidden = isFreeBoard();
+  postSection.hidden = !isFreeBoard();
+  newRankingBtn.hidden = isFreeBoard();
+  newPostBtn.hidden = !isFreeBoard();
+  newPostBtn.disabled = !isMember;
+  if (isFreeBoard()) {
+    setRankingMessage(isMember ? "자유게시판은 회원만 글쓰기와 댓글을 사용할 수 있습니다." : "로그인한 회원만 글쓰기와 댓글을 사용할 수 있습니다.");
+    renderSubcategories();
+    renderPosts().catch((error) => {
+      postList.innerHTML = `<tr><td colspan="6">${escapeHtml(error.message)}</td></tr>`;
+    });
+    updateMemberUi();
+    return;
+  }
   if (!isActiveRankingEnabled()) {
     setRankingMessage("빵류 소분류에서 랭킹 투표를 사용할 수 있습니다.");
   } else if (!isMember) {
     setRankingMessage("로그인한 회원만 신규등록과 점수주기를 할 수 있습니다.");
   } else {
-    setRankingMessage("각 소분류는 월요일부터 일요일까지 회원 1명당 1번만 점수를 줄 수 있습니다.");
+    setRankingMessage("각 소분류는 월요일부터 일요일까지 회원 1명당 3개까지 점수를 줄 수 있고, 같은 상점에는 다시 점수를 줄 수 없습니다.");
   }
   newRankingBtn.disabled = !isActiveRankingEnabled() || !isMember;
   renderSubcategories();
@@ -282,6 +329,50 @@ async function renderRankings(providedRankings) {
   });
 }
 
+async function renderPosts() {
+  const query = new URLSearchParams({ category: currentCategory, subcategory: currentSubcategory });
+  const posts = (await apiGet(`/api/community/posts?${query.toString()}`)).posts || [];
+  postList.innerHTML = posts.length ? posts.map((post, index) => `
+    <tr>
+      <td>${posts.length - index}</td>
+      <td class="community-title-cell" data-post-id="${post.id}">${escapeHtml(post.title)}</td>
+      <td>${escapeHtml(post.author)}</td>
+      <td>${Number(post.views || 0)}</td>
+      <td>${Array.isArray(post.comments) ? post.comments.length : 0}</td>
+      <td>${formatDate(post.createdAt)}</td>
+    </tr>
+  `).join("") : `<tr><td colspan="6">등록된 글이 없습니다.</td></tr>`;
+
+  postList.querySelectorAll(".community-title-cell").forEach((cell) => {
+    cell.addEventListener("click", () => showPostDetail(cell.dataset.postId));
+  });
+}
+
+function renderComments(post) {
+  const comments = Array.isArray(post.comments) ? post.comments : [];
+  commentList.innerHTML = comments.length ? comments.map((comment) => `
+    <li>
+      <strong>${escapeHtml(comment.name)}</strong>
+      <span>${escapeHtml(comment.body)}</span>
+    </li>
+  `).join("") : "<li><strong>댓글</strong><span>등록된 댓글이 없습니다.</span></li>";
+}
+
+async function showPostDetail(postId) {
+  const data = await apiGet(`/api/community/post?id=${encodeURIComponent(postId)}`);
+  const post = data.post;
+  postDetail.dataset.postId = post.id;
+  postDetail.hidden = false;
+  postDetailMeta.textContent = `${post.category} / ${post.subcategory}`;
+  postDetailTitle.textContent = post.title;
+  postDetailInfo.textContent = `${post.author} · 조회 ${Number(post.views || 0)} · ${formatDate(post.createdAt)}`;
+  postDetailBody.textContent = post.body;
+  commentInput.disabled = !isMember;
+  commentForm.querySelector("button").disabled = !isMember;
+  renderComments(post);
+  await renderPosts();
+}
+
 function showRankingForm(shopName = "", mapUrl = "") {
   if (!isActiveRankingEnabled()) return;
   if (!isMember) {
@@ -352,6 +443,16 @@ rankSortButtons.forEach((button) => {
 
 newRankingBtn.addEventListener("click", () => showRankingForm(""));
 
+newPostBtn.addEventListener("click", () => {
+  if (!isMember) {
+    setRankingMessage("로그인한 회원만 글을 쓸 수 있습니다.", true);
+    showAuthForm("login");
+    return;
+  }
+  postForm.hidden = false;
+  postTitleInput.focus();
+});
+
 rankingCancelBtn.addEventListener("click", () => {
   rankingForm.hidden = true;
   editingShopName = "";
@@ -364,6 +465,61 @@ rankingCancelBtn.addEventListener("click", () => {
 mapUrlInput.addEventListener("input", scheduleNaverMapPreview);
 mapUrlInput.addEventListener("paste", () => window.setTimeout(previewNaverMapUrl, 50));
 mapUrlInput.addEventListener("blur", previewNaverMapUrl);
+
+postCancelBtn.addEventListener("click", () => {
+  postForm.hidden = true;
+  postForm.reset();
+});
+
+postForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!isMember) {
+    setRankingMessage("로그인한 회원만 글을 쓸 수 있습니다.", true);
+    showAuthForm("login");
+    return;
+  }
+  try {
+    await apiPost("/api/community/posts", {
+      category: currentCategory,
+      subcategory: currentSubcategory,
+      title: postTitleInput.value,
+      body: postBodyInput.value,
+      author: currentUser.displayName,
+      userId: currentUser.userId
+    });
+    postForm.hidden = true;
+    postForm.reset();
+    setRankingMessage("글이 등록되었습니다.");
+    await renderPosts();
+  } catch (error) {
+    setRankingMessage(error.message, true);
+  }
+});
+
+commentForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!isMember) {
+    setRankingMessage("로그인한 회원만 댓글을 쓸 수 있습니다.", true);
+    showAuthForm("login");
+    return;
+  }
+  const postId = postDetail.dataset.postId;
+  if (!postId) return;
+  try {
+    const data = await apiPost("/api/community/comments", {
+      postId,
+      body: commentInput.value,
+      name: currentUser.displayName,
+      userId: currentUser.userId
+    });
+    commentInput.value = "";
+    renderComments(data.post);
+    await renderPosts();
+    setRankingMessage("댓글이 등록되었습니다.");
+  } catch (error) {
+    setRankingMessage(error.message, true);
+  }
+});
 
 rankingForm.addEventListener("submit", async (event) => {
   event.preventDefault();

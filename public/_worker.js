@@ -1372,7 +1372,10 @@ async function handleCommunityCreatePostWorker(request, res) {
     const content = String(body.body || "").trim();
     const category = String(body.category || "").trim();
     const subcategory = String(body.subcategory || category).trim();
+    const userId = normalizeCommunityUserId(body.userId);
     if (!title || !content || !category || !subcategory) return sendJson(res, 400, { error: "게시글 제목과 내용을 입력해주세요." });
+    if (!userId) return sendJson(res, 401, { error: "로그인한 회원만 글을 쓸 수 있습니다." });
+    if (!(await findCommunityUserWorker(userId, request.env))) return sendJson(res, 401, { error: "로그인 정보를 다시 확인해주세요." });
     const post = {
       id: Date.now(),
       category,
@@ -1396,8 +1399,11 @@ async function handleCommunityAddCommentWorker(request, res) {
     const body = await request.json().catch(() => ({}));
     const post = communityPosts.find((item) => Number(item.id) === Number(body.postId));
     const commentBody = String(body.body || "").trim();
+    const userId = normalizeCommunityUserId(body.userId);
     if (!post) return sendJson(res, 404, { error: "게시글을 찾을 수 없습니다." });
     if (!commentBody) return sendJson(res, 400, { error: "댓글 내용을 입력해주세요." });
+    if (!userId) return sendJson(res, 401, { error: "로그인한 회원만 댓글을 쓸 수 있습니다." });
+    if (!(await findCommunityUserWorker(userId, request.env))) return sendJson(res, 401, { error: "로그인 정보를 다시 확인해주세요." });
     post.comments.push({
       id: Date.now(),
       name: String(body.name || "비회원").trim().slice(0, 20) || "비회원",
@@ -1578,7 +1584,7 @@ async function handleCommunityRankingScoreWorker(request, res) {
       }
       return sendJson(res, 409, { error: "이번 주에 이미 점수를 준 상점입니다. 같은 상점에는 다시 점수를 줄 수 없습니다." });
     }
-    if (weeklyVotes.length >= 1) {
+    if (weeklyVotes.length >= 3) {
       if (existing && mapUrl && !existing.mapUrl) {
         existing.mapUrl = mapUrl;
         existing.updatedAt = new Date().toISOString();
@@ -1587,7 +1593,7 @@ async function handleCommunityRankingScoreWorker(request, res) {
         ).slice(0, 100);
         return sendJson(res, 200, { ok: true, mapOnly: true, rankings, message: "이번 주 투표 횟수는 초과되어 점수는 추가하지 않고 지도 URL만 저장했습니다." });
       }
-      return sendJson(res, 409, { error: "이번 주에는 같은 소분류에 1번만 점수를 줄 수 있습니다. 다음 주에 다시 투표해주세요." });
+      return sendJson(res, 409, { error: "이번 주에는 같은 소분류에 3개까지 점수를 줄 수 있습니다. 다음 주에 다시 투표해주세요." });
     }
     if (!(await findCommunityUserWorker(voterId, request.env))) return sendJson(res, 401, { error: "로그인 정보를 다시 확인해주세요." });
     const now = new Date().toISOString();

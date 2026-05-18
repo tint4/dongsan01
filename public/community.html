@@ -81,6 +81,7 @@
               <p id="boardSummary">단팥빵 랭킹 차트</p>
             </div>
             <button id="newRankingBtn" type="button">신규등록</button>
+            <button id="newPostBtn" type="button" hidden>글쓰기</button>
           </div>
 
           <nav id="subCategoryList" class="subcategory-list" aria-label="소분류"></nav>
@@ -111,7 +112,8 @@
 
           <p id="rankingMessage" class="status" role="status"></p>
 
-          <div class="table-wrap community-table-wrap">
+          <section id="rankingSection">
+            <div class="table-wrap community-table-wrap">
             <table class="community-table ranking-table">
               <thead>
                 <tr>
@@ -127,7 +129,58 @@
               </thead>
               <tbody id="rankingList"></tbody>
             </table>
-          </div>
+            </div>
+          </section>
+
+          <section id="postSection" hidden>
+            <form id="postForm" class="community-write-form" hidden>
+              <label>
+                <span>제목</span>
+                <input id="postTitleInput" type="text" autocomplete="off" />
+              </label>
+              <label>
+                <span>내용</span>
+                <textarea id="postBodyInput" rows="6"></textarea>
+              </label>
+              <div class="community-actions">
+                <button type="submit">등록</button>
+                <button id="postCancelBtn" type="button">취소</button>
+              </div>
+            </form>
+
+            <div class="table-wrap community-table-wrap">
+              <table class="community-table board-table">
+                <thead>
+                  <tr>
+                    <th>번호</th>
+                    <th>제목</th>
+                    <th>작성자</th>
+                    <th>조회</th>
+                    <th>댓글</th>
+                    <th>작성일</th>
+                  </tr>
+                </thead>
+                <tbody id="postList"></tbody>
+              </table>
+            </div>
+
+            <article id="postDetail" class="community-post-detail" hidden>
+              <div class="community-detail-head">
+                <span id="postDetailMeta"></span>
+                <h3 id="postDetailTitle"></h3>
+                <p id="postDetailInfo"></p>
+              </div>
+              <div id="postDetailBody" class="community-detail-body"></div>
+              <section class="community-comments">
+                <h4>댓글</h4>
+                <ul id="commentList"></ul>
+                <form id="commentForm" class="comment-form">
+                  <input id="commentInput" type="text" autocomplete="off" placeholder="회원만 댓글을 쓸 수 있습니다." />
+                  <button type="submit">댓글등록</button>
+                </form>
+              </section>
+            </article>
+          </section>
         </section>
       </section>
     </main>
