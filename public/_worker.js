@@ -1389,18 +1389,14 @@ async function addCommunityRankingVoteWorker(item, vote, env) {
   const db = await ensureCommunityRankingTables(env);
   if (!db) return false;
   const now = item.updatedAt || new Date().toISOString();
-  let rankingId = item.id;
-  if (!rankingId) {
-    rankingId = Date.now();
-    await db.prepare(`
-      INSERT INTO community_rankings (id, category, subcategory, shop_name, map_url, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).bind(rankingId, item.category, item.subcategory, item.shopName, item.mapUrl || "", now, now).run();
-  } else {
-    await db.prepare("UPDATE community_rankings SET map_url = ?, updated_at = ? WHERE id = ?")
-      .bind(item.mapUrl || "", now, rankingId)
-      .run();
-  }
+  const rankingId = item.id || Date.now();
+  await db.prepare(`
+    INSERT OR IGNORE INTO community_rankings (id, category, subcategory, shop_name, map_url, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(rankingId, item.category, item.subcategory, item.shopName, item.mapUrl || "", item.createdAt || now, now).run();
+  await db.prepare("UPDATE community_rankings SET map_url = ?, updated_at = ? WHERE id = ?")
+    .bind(item.mapUrl || "", now, rankingId)
+    .run();
   await db.prepare(`
     INSERT INTO community_ranking_votes (ranking_id, user_id, taste_score, price_score, voted_at)
     VALUES (?, ?, ?, ?, ?)
