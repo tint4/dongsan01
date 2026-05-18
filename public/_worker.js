@@ -360,7 +360,7 @@ async function handleGumvitScores(req, res) {
       type,
       searchedAt: new Date().toISOString(),
       date: races[0].date || "",
-      weights: { "★": 3, "◎": 1, "○": 1, "▲": 0, "※": 2 },
+      weights: { "★": 5, "◎": 4, "○": 3, "▲": 1, "※": 2 },
       races: results
     });
   } catch (error) {
