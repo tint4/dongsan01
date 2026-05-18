@@ -53,6 +53,8 @@ let currentSortKey = "totalScore";
 let currentSortDirection = "desc";
 let currentUser = JSON.parse(localStorage.getItem("community-user") || "null");
 let isMember = Boolean(currentUser);
+let mapPreviewTimer = 0;
+let lastPreviewUrl = "";
 const loginFailKey = "community-login-fails";
 const loginLockKey = "community-login-locked-until";
 
@@ -220,7 +222,7 @@ function sortRankings(rankings) {
     .map((item) => ({ ...item, originalRank: Number(item.rank || 0) }))
     .sort((a, b) => {
       if (sortKey === "rank") {
-        return direction * (Number(a.originalRank || 9999) - Number(b.originalRank || 9999));
+        return direction * (Number(b.originalRank || 9999) - Number(a.originalRank || 9999));
       }
       const primary = Number(a[sortKey] || 0) - Number(b[sortKey] || 0);
       if (primary !== 0) return direction * primary;
@@ -233,7 +235,12 @@ function sortRankings(rankings) {
 
 function updateSortButtons() {
   rankSortButtons.forEach((button) => {
-    const active = button.dataset.sort === currentSortKey && button.dataset.direction === currentSortDirection;
+    const active = button.dataset.sort === currentSortKey;
+    if (!active) {
+      button.dataset.direction = "desc";
+      button.textContent = "▼";
+      button.setAttribute("aria-label", `${button.dataset.label || button.dataset.sort} 높은순 정렬`);
+    }
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
   });
@@ -297,6 +304,29 @@ function showRankingForm(shopName = "", mapUrl = "") {
   }
 }
 
+async function previewNaverMapUrl() {
+  const rawUrl = mapUrlInput.value.trim();
+  if (!rawUrl || rawUrl === lastPreviewUrl || shopNameInput.value.trim()) return;
+  lastPreviewUrl = rawUrl;
+  try {
+    setRankingMessage("네이버 지도 링크에서 상점명을 확인하고 있습니다.");
+    const data = await apiGet(`/api/community/map-preview?url=${encodeURIComponent(rawUrl)}`);
+    if (!shopNameInput.value.trim() && data.shopName) {
+      shopNameInput.value = data.shopName;
+      setRankingMessage(`${data.shopName} 상점명을 자동으로 입력했습니다.`);
+    } else {
+      setRankingMessage("상점명을 자동으로 찾지 못했습니다. 상점명을 직접 입력해주세요.", true);
+    }
+  } catch (error) {
+    setRankingMessage(error.message, true);
+  }
+}
+
+function scheduleNaverMapPreview() {
+  window.clearTimeout(mapPreviewTimer);
+  mapPreviewTimer = window.setTimeout(previewNaverMapUrl, 350);
+}
+
 categoryTabs.forEach((tab) => {
   tab.addEventListener("click", () => {
     currentCategory = tab.dataset.category;
@@ -310,6 +340,10 @@ rankSortButtons.forEach((button) => {
   button.addEventListener("click", () => {
     currentSortKey = button.dataset.sort || "totalScore";
     currentSortDirection = button.dataset.direction || "desc";
+    const nextDirection = currentSortDirection === "desc" ? "asc" : "desc";
+    button.dataset.direction = nextDirection;
+    button.textContent = nextDirection === "desc" ? "▼" : "▲";
+    button.setAttribute("aria-label", `${button.dataset.label || currentSortKey} ${nextDirection === "desc" ? "높은순" : "낮은순"} 정렬`);
     renderRankings().catch((error) => {
       rankingList.innerHTML = `<tr><td colspan="8">${escapeHtml(error.message)}</td></tr>`;
     });
@@ -323,8 +357,13 @@ rankingCancelBtn.addEventListener("click", () => {
   editingShopName = "";
   shopNameInput.readOnly = false;
   mapUrlInput.value = "";
+  lastPreviewUrl = "";
   setRankingMessage("");
 });
+
+mapUrlInput.addEventListener("input", scheduleNaverMapPreview);
+mapUrlInput.addEventListener("paste", () => window.setTimeout(previewNaverMapUrl, 50));
+mapUrlInput.addEventListener("blur", previewNaverMapUrl);
 
 rankingForm.addEventListener("submit", async (event) => {
   event.preventDefault();

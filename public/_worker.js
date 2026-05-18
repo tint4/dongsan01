@@ -1226,11 +1226,12 @@ async function handleAdminLogoutWorker(request, res) {
 
 async function handleAdminStatusWorker(request, res) {
   if (!isAdminRequest(request)) return sendJson(res, 200, { loggedIn: false });
+  const userCount = await countCommunityUsersWorker(request.env);
   return sendJson(res, 200, {
     loggedIn: true,
     userId: ADMIN_ID,
     counts: {
-      users: communityUsers.length,
+      users: userCount,
       posts: communityPosts.length,
       comments: communityPosts.reduce((sum, post) => sum + (post.comments || []).length, 0)
     }
@@ -1255,6 +1256,55 @@ function normalizeCommunityUserId(value) {
   return String(value || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
 }
 
+function getCommunityDb(env) {
+  return env?.COMMUNITY_DB || env?.DB || null;
+}
+
+async function ensureCommunityUserTable(env) {
+  const db = getCommunityDb(env);
+  if (!db) return null;
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS community_users (
+      user_id TEXT PRIMARY KEY,
+      display_name TEXT NOT NULL,
+      salt TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )
+  `).run();
+  return db;
+}
+
+async function findCommunityUserWorker(userId, env) {
+  const db = await ensureCommunityUserTable(env);
+  if (!db) return communityUsers.find((item) => item.userId === userId) || null;
+  const row = await db.prepare(`
+    SELECT user_id AS userId, display_name AS displayName, salt, password_hash AS passwordHash, created_at AS createdAt
+    FROM community_users
+    WHERE user_id = ?
+  `).bind(userId).first();
+  return row || null;
+}
+
+async function insertCommunityUserWorker(user, env) {
+  const db = await ensureCommunityUserTable(env);
+  if (!db) {
+    communityUsers.push(user);
+    return;
+  }
+  await db.prepare(`
+    INSERT INTO community_users (user_id, display_name, salt, password_hash, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).bind(user.userId, user.displayName, user.salt, user.passwordHash, user.createdAt).run();
+}
+
+async function countCommunityUsersWorker(env) {
+  const db = await ensureCommunityUserTable(env);
+  if (!db) return communityUsers.length;
+  const row = await db.prepare("SELECT COUNT(*) AS count FROM community_users").first();
+  return Number(row?.count || 0);
+}
+
 async function hashCommunityPasswordWorker(password, salt) {
   const bytes = new TextEncoder().encode(`${salt}:${password}`);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -1264,16 +1314,17 @@ async function hashCommunityPasswordWorker(password, salt) {
 async function handleCommunitySignupWorker(request, res) {
   try {
     const body = await request.json().catch(() => ({}));
+    const env = request.env;
     const userId = normalizeCommunityUserId(body.userId);
     const displayName = String(body.displayName || body.userId || "").trim().slice(0, 20);
     const password = String(body.password || "");
     if (userId.length < 4) return sendJson(res, 400, { error: "아이디는 영문/숫자 4자 이상으로 입력해주세요." });
     if (password.length < 6) return sendJson(res, 400, { error: "비밀번호는 6자 이상으로 입력해주세요." });
-    if (communityUsers.some((user) => user.userId === userId)) return sendJson(res, 409, { error: "이미 사용 중인 아이디입니다." });
+    if (await findCommunityUserWorker(userId, env)) return sendJson(res, 409, { error: "이미 사용 중인 아이디입니다." });
     const salt = randomToken().slice(0, 32);
     const passwordHash = await hashCommunityPasswordWorker(password, salt);
     const user = { userId, displayName: displayName || userId, salt, passwordHash, createdAt: new Date().toISOString() };
-    communityUsers.push(user);
+    await insertCommunityUserWorker(user, env);
     return sendJson(res, 200, { ok: true, user: { userId: user.userId, displayName: user.displayName } });
   } catch (error) {
     return sendJson(res, 500, { error: error.message });
@@ -1283,9 +1334,10 @@ async function handleCommunitySignupWorker(request, res) {
 async function handleCommunityLoginWorker(request, res) {
   try {
     const body = await request.json().catch(() => ({}));
+    const env = request.env;
     const userId = normalizeCommunityUserId(body.userId);
     const password = String(body.password || "");
-    const user = communityUsers.find((item) => item.userId === userId);
+    const user = await findCommunityUserWorker(userId, env);
     if (!user) return sendJson(res, 404, { code: "INVALID_ID", error: "아이디를 확인해주세요." });
     const passwordHash = await hashCommunityPasswordWorker(password, user.salt);
     if (passwordHash !== user.passwordHash) return sendJson(res, 401, { code: "INVALID_PASSWORD", error: "비밀번호를 다시 확인해주세요." });
@@ -1461,6 +1513,17 @@ async function resolveNaverMapShopNameWorker(mapUrl) {
   }
 }
 
+async function handleCommunityMapPreviewWorker(req, res) {
+  try {
+    const mapUrl = normalizeNaverMapUrlWorker(req.searchParams.get("url") || "");
+    if (!mapUrl) return sendJson(res, 400, { error: "네이버 지도 공유 URL을 입력해주세요." });
+    const shopName = await resolveNaverMapShopNameWorker(mapUrl);
+    return sendJson(res, 200, { ok: true, mapUrl, shopName });
+  } catch (error) {
+    return sendJson(res, 500, { error: error.message });
+  }
+}
+
 async function handleCommunityRankingsWorker(req, res) {
   const category = String(req.searchParams.get("category") || "빵류").trim();
   const subcategory = String(req.searchParams.get("subcategory") || "단팥빵").trim();
@@ -1482,6 +1545,7 @@ async function handleCommunityRankingScoreWorker(request, res) {
     const voterId = normalizeCommunityUserId(body.userId);
     if (!category || !subcategory) return sendJson(res, 400, { error: "분류를 확인해주세요." });
     if (!voterId) return sendJson(res, 401, { error: "로그인한 회원만 투표할 수 있습니다." });
+    if (!(await findCommunityUserWorker(voterId, request.env))) return sendJson(res, 401, { error: "로그인 정보를 다시 확인해주세요." });
     if (!shopName && mapUrl) shopName = await resolveNaverMapShopNameWorker(mapUrl);
     if (!shopName) return sendJson(res, 400, { error: "상점명을 입력하거나 네이버 지도 URL을 입력해주세요." });
     if (!Number.isInteger(tasteScore) || tasteScore < 1 || tasteScore > 10) return sendJson(res, 400, { error: "맛 점수는 1점부터 10점까지 입력해주세요." });
@@ -2694,7 +2758,9 @@ async function runApi(handler, req, request) {
   let headers = { "content-type": "application/json; charset=utf-8" };
   let body = "";
   const res = { writeHead(nextStatus, nextHeaders = {}) { status = nextStatus; headers = { ...headers, ...nextHeaders }; }, end(nextBody = "") { body = nextBody; } };
-  await handler(request || req, res);
+  const apiInput = request || req;
+  apiInput.env = req.env;
+  await handler(apiInput, res);
   return new Response(body, { status, headers });
 }
 
@@ -2716,6 +2782,7 @@ export default {
     if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
     if (url.pathname === "/api/admin/status") return runApi(handleAdminStatusWorker, req, request);
     if (url.pathname === "/api/community/rankings") return runApi(handleCommunityRankingsWorker, req);
+    if (url.pathname === "/api/community/map-preview") return runApi(handleCommunityMapPreviewWorker, req);
     if (url.pathname === "/api/community/posts") return runApi(handleCommunityPostsWorker, req);
     if (url.pathname === "/api/community/post") return runApi(handleCommunityPostWorker, req);
     if (url.pathname === "/api/terminals") return runApi(handleTerminals, req);

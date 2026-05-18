@@ -1573,6 +1573,17 @@ async function handleCommunityLogin(request, res) {
   }
 }
 
+async function handleCommunityMapPreview(req, res) {
+  try {
+    const mapUrl = normalizeNaverMapUrl(req.searchParams.get("url") || "");
+    if (!mapUrl) return sendJson(res, 400, { error: "네이버 지도 공유 URL을 입력해주세요." });
+    const shopName = await resolveNaverMapShopName(mapUrl);
+    sendJson(res, 200, { ok: true, mapUrl, shopName });
+  } catch (error) {
+    sendJson(res, 500, { error: error.message });
+  }
+}
+
 const communityBreadSubcategories = [
   "단팥빵",
   "바게트",
@@ -3166,6 +3177,7 @@ const server = http.createServer(async (request, response) => {
   if (url.pathname === "/api/admin/status") return handleAdminStatus(request, response);
   if (url.pathname === "/api/terminals") return handleTerminals(req, response);
   if (url.pathname === "/api/community/rankings") return handleCommunityRankings(req, response);
+  if (url.pathname === "/api/community/map-preview") return handleCommunityMapPreview(req, response);
   if (url.pathname === "/api/community/posts") return handleCommunityPosts(req, response);
   if (url.pathname === "/api/community/post") return handleCommunityPost(req, response);
   if (url.pathname === "/api/destinations") return handleDestinations(req, response);
