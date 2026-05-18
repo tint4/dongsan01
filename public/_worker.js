@@ -1545,7 +1545,6 @@ async function handleCommunityRankingScoreWorker(request, res) {
     const voterId = normalizeCommunityUserId(body.userId);
     if (!category || !subcategory) return sendJson(res, 400, { error: "분류를 확인해주세요." });
     if (!voterId) return sendJson(res, 401, { error: "로그인한 회원만 투표할 수 있습니다." });
-    if (!(await findCommunityUserWorker(voterId, request.env))) return sendJson(res, 401, { error: "로그인 정보를 다시 확인해주세요." });
     if (!shopName && mapUrl) shopName = await resolveNaverMapShopNameWorker(mapUrl);
     if (!shopName) return sendJson(res, 400, { error: "상점명을 입력하거나 네이버 지도 URL을 입력해주세요." });
     if (!Number.isInteger(tasteScore) || tasteScore < 1 || tasteScore > 10) return sendJson(res, 400, { error: "맛 점수는 1점부터 10점까지 입력해주세요." });
@@ -1579,7 +1578,7 @@ async function handleCommunityRankingScoreWorker(request, res) {
       }
       return sendJson(res, 409, { error: "이번 주에 이미 점수를 준 상점입니다. 같은 상점에는 다시 점수를 줄 수 없습니다." });
     }
-    if (weeklyVotes.length >= 3) {
+    if (weeklyVotes.length >= 1) {
       if (existing && mapUrl && !existing.mapUrl) {
         existing.mapUrl = mapUrl;
         existing.updatedAt = new Date().toISOString();
@@ -1588,8 +1587,9 @@ async function handleCommunityRankingScoreWorker(request, res) {
         ).slice(0, 100);
         return sendJson(res, 200, { ok: true, mapOnly: true, rankings, message: "이번 주 투표 횟수는 초과되어 점수는 추가하지 않고 지도 URL만 저장했습니다." });
       }
-      return sendJson(res, 409, { error: "이번 주에는 해당 소분류에 3번까지 점수를 줄 수 있습니다. 다음 주에 다시 투표해주세요." });
+      return sendJson(res, 409, { error: "이번 주에는 같은 소분류에 1번만 점수를 줄 수 있습니다. 다음 주에 다시 투표해주세요." });
     }
+    if (!(await findCommunityUserWorker(voterId, request.env))) return sendJson(res, 401, { error: "로그인 정보를 다시 확인해주세요." });
     const now = new Date().toISOString();
     if (existing) {
       existing.votes = Array.isArray(existing.votes) ? existing.votes : [];

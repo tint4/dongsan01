@@ -205,7 +205,7 @@ function renderBoard() {
   } else if (!isMember) {
     setRankingMessage("로그인한 회원만 신규등록과 점수주기를 할 수 있습니다.");
   } else {
-    setRankingMessage("각 소분류는 월요일부터 일요일까지 회원 1명당 3번까지 점수를 줄 수 있고, 같은 상점에는 다시 점수를 줄 수 없습니다.");
+    setRankingMessage("각 소분류는 월요일부터 일요일까지 회원 1명당 1번만 점수를 줄 수 있습니다.");
   }
   newRankingBtn.disabled = !isActiveRankingEnabled() || !isMember;
   renderSubcategories();
