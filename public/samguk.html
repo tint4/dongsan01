@@ -1,0 +1,359 @@
+﻿<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>삼국지 뽑기</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="home-shell samguk-shell">
+      <nav class="page-nav" aria-label="페이지 이동">
+        <a class="home-back-link" href="./draw.html">뽑기로 돌아가기</a>
+        <a class="home-back-link" href="./index.html">메인페이지로 돌아가기</a>
+      </nav>
+
+      <section class="home-section" aria-label="삼국지 뽑기판">
+        <h2>삼국지</h2>
+        <div class="samguk-draw-panel">
+          <div class="samguk-preview" aria-live="polite">
+            <img id="samgukPreviewImage" src="./assets/samguk/p01.svg" alt="랜덤 인물 미리보기" />
+            <strong id="samgukPreviewName">유비</strong>
+          </div>
+          <div class="samguk-draw-actions">
+            <button id="samgukDrawButton" type="button">뽑기</button>
+            <p id="samgukDrawStatus">남은 뽑기 20번</p>
+            <button id="samgukResetButton" type="button">다시 시작</button>
+          </div>
+        </div>
+        <div class="samguk-grid">
+          <div class="samguk-card" data-index="0" data-name="유비">
+            <img src="./assets/samguk/p01.svg" alt="유비" />
+            <span>유비</span>
+          </div>
+          <div class="samguk-card" data-index="1" data-name="조조">
+            <img src="./assets/samguk/p02.svg" alt="조조" />
+            <span>조조</span>
+          </div>
+          <div class="samguk-card" data-index="2" data-name="손권">
+            <img src="./assets/samguk/p03.svg" alt="손권" />
+            <span>손권</span>
+          </div>
+          <div class="samguk-card" data-index="3" data-name="원소">
+            <img src="./assets/samguk/p04.svg" alt="원소" />
+            <span>원소</span>
+          </div>
+          <div class="samguk-card" data-index="4" data-name="원술">
+            <img src="./assets/samguk/p05.svg" alt="원술" />
+            <span>원술</span>
+          </div>
+          <div class="samguk-card" data-index="5" data-name="동탁">
+            <img src="./assets/samguk/p06.svg" alt="동탁" />
+            <span>동탁</span>
+          </div>
+          <div class="samguk-card" data-index="6" data-name="유표">
+            <img src="./assets/samguk/p07.svg" alt="유표" />
+            <span>유표</span>
+          </div>
+          <div class="samguk-card" data-index="7" data-name="공손찬">
+            <img src="./assets/samguk/p08.svg" alt="공손찬" />
+            <span>공손찬</span>
+          </div>
+          <div class="samguk-card" data-index="8" data-name="여포">
+            <img src="./assets/samguk/p09.svg" alt="여포" />
+            <span>여포</span>
+          </div>
+          <div class="samguk-card" data-index="9" data-name="관우">
+            <img src="./assets/samguk/p10.svg" alt="관우" />
+            <span>관우</span>
+          </div>
+          <div class="samguk-card" data-index="10" data-name="장비">
+            <img src="./assets/samguk/p11.svg" alt="장비" />
+            <span>장비</span>
+          </div>
+          <div class="samguk-card" data-index="11" data-name="조운">
+            <img src="./assets/samguk/p12.svg" alt="조운" />
+            <span>조운</span>
+          </div>
+          <div class="samguk-card" data-index="12" data-name="마초">
+            <img src="./assets/samguk/p13.svg" alt="마초" />
+            <span>마초</span>
+          </div>
+          <div class="samguk-card" data-index="13" data-name="위연">
+            <img src="./assets/samguk/p14.svg" alt="위연" />
+            <span>위연</span>
+          </div>
+          <div class="samguk-card" data-index="14" data-name="마대">
+            <img src="./assets/samguk/p15.svg" alt="마대" />
+            <span>마대</span>
+          </div>
+          <div class="samguk-card" data-index="15" data-name="황충">
+            <img src="./assets/samguk/p16.svg" alt="황충" />
+            <span>황충</span>
+          </div>
+          <div class="samguk-card" data-index="16" data-name="강유">
+            <img src="./assets/samguk/p17.svg" alt="강유" />
+            <span>강유</span>
+          </div>
+          <div class="samguk-card" data-index="17" data-name="요화">
+            <img src="./assets/samguk/p18.svg" alt="요화" />
+            <span>요화</span>
+          </div>
+          <div class="samguk-card" data-index="18" data-name="제갈량">
+            <img src="./assets/samguk/p19.svg" alt="제갈량" />
+            <span>제갈량</span>
+          </div>
+          <div class="samguk-card" data-index="19" data-name="방통">
+            <img src="./assets/samguk/p20.svg" alt="방통" />
+            <span>방통</span>
+          </div>
+          <div class="samguk-card" data-index="20" data-name="서서">
+            <img src="./assets/samguk/p21.svg" alt="서서" />
+            <span>서서</span>
+          </div>
+          <div class="samguk-card" data-index="21" data-name="법정">
+            <img src="./assets/samguk/p22.svg" alt="법정" />
+            <span>법정</span>
+          </div>
+          <div class="samguk-card" data-index="22" data-name="마량">
+            <img src="./assets/samguk/p23.svg" alt="마량" />
+            <span>마량</span>
+          </div>
+          <div class="samguk-card" data-index="23" data-name="마속">
+            <img src="./assets/samguk/p24.svg" alt="마속" />
+            <span>마속</span>
+          </div>
+          <div class="samguk-card" data-index="24" data-name="간옹">
+            <img src="./assets/samguk/p25.svg" alt="간옹" />
+            <span>간옹</span>
+          </div>
+          <div class="samguk-card" data-index="25" data-name="장완">
+            <img src="./assets/samguk/p26.svg" alt="장완" />
+            <span>장완</span>
+          </div>
+          <div class="samguk-card" data-index="26" data-name="비의">
+            <img src="./assets/samguk/p27.svg" alt="비의" />
+            <span>비의</span>
+          </div>
+          <div class="samguk-card" data-index="27" data-name="순욱">
+            <img src="./assets/samguk/p28.svg" alt="순욱" />
+            <span>순욱</span>
+          </div>
+          <div class="samguk-card" data-index="28" data-name="순유">
+            <img src="./assets/samguk/p29.svg" alt="순유" />
+            <span>순유</span>
+          </div>
+          <div class="samguk-card" data-index="29" data-name="곽가">
+            <img src="./assets/samguk/p30.svg" alt="곽가" />
+            <span>곽가</span>
+          </div>
+          <div class="samguk-card" data-index="30" data-name="가후">
+            <img src="./assets/samguk/p31.svg" alt="가후" />
+            <span>가후</span>
+          </div>
+          <div class="samguk-card" data-index="31" data-name="정욱">
+            <img src="./assets/samguk/p32.svg" alt="정욱" />
+            <span>정욱</span>
+          </div>
+          <div class="samguk-card" data-index="32" data-name="사마의">
+            <img src="./assets/samguk/p33.svg" alt="사마의" />
+            <span>사마의</span>
+          </div>
+          <div class="samguk-card" data-index="33" data-name="진군">
+            <img src="./assets/samguk/p34.svg" alt="진군" />
+            <span>진군</span>
+          </div>
+          <div class="samguk-card" data-index="34" data-name="진궁">
+            <img src="./assets/samguk/p35.svg" alt="진궁" />
+            <span>진궁</span>
+          </div>
+          <div class="samguk-card" data-index="35" data-name="유엽">
+            <img src="./assets/samguk/p36.svg" alt="유엽" />
+            <span>유엽</span>
+          </div>
+          <div class="samguk-card" data-index="36" data-name="태사자">
+            <img src="./assets/samguk/p37.svg" alt="태사자" />
+            <span>태사자</span>
+          </div>
+          <div class="samguk-card" data-index="37" data-name="감녕">
+            <img src="./assets/samguk/p38.svg" alt="감녕" />
+            <span>감녕</span>
+          </div>
+          <div class="samguk-card" data-index="38" data-name="황개">
+            <img src="./assets/samguk/p39.svg" alt="황개" />
+            <span>황개</span>
+          </div>
+          <div class="samguk-card" data-index="39" data-name="정보">
+            <img src="./assets/samguk/p40.svg" alt="정보" />
+            <span>정보</span>
+          </div>
+          <div class="samguk-card" data-index="40" data-name="한당">
+            <img src="./assets/samguk/p41.svg" alt="한당" />
+            <span>한당</span>
+          </div>
+          <div class="samguk-card" data-index="41" data-name="주태">
+            <img src="./assets/samguk/p42.svg" alt="주태" />
+            <span>주태</span>
+          </div>
+          <div class="samguk-card" data-index="42" data-name="능통">
+            <img src="./assets/samguk/p43.svg" alt="능통" />
+            <span>능통</span>
+          </div>
+          <div class="samguk-card" data-index="43" data-name="서성">
+            <img src="./assets/samguk/p44.svg" alt="서성" />
+            <span>서성</span>
+          </div>
+          <div class="samguk-card" data-index="44" data-name="정봉">
+            <img src="./assets/samguk/p45.svg" alt="정봉" />
+            <span>정봉</span>
+          </div>
+          <div class="samguk-card" data-index="45" data-name="주유">
+            <img src="./assets/samguk/p46.svg" alt="주유" />
+            <span>주유</span>
+          </div>
+          <div class="samguk-card" data-index="46" data-name="노숙">
+            <img src="./assets/samguk/p47.svg" alt="노숙" />
+            <span>노숙</span>
+          </div>
+          <div class="samguk-card" data-index="47" data-name="여몽">
+            <img src="./assets/samguk/p48.svg" alt="여몽" />
+            <span>여몽</span>
+          </div>
+          <div class="samguk-card" data-index="48" data-name="육손">
+            <img src="./assets/samguk/p49.svg" alt="육손" />
+            <span>육손</span>
+          </div>
+          <div class="samguk-card" data-index="49" data-name="장소">
+            <img src="./assets/samguk/p50.svg" alt="장소" />
+            <span>장소</span>
+          </div>
+          <div class="samguk-card" data-index="50" data-name="장굉">
+            <img src="./assets/samguk/p51.svg" alt="장굉" />
+            <span>장굉</span>
+          </div>
+          <div class="samguk-card" data-index="51" data-name="제갈근">
+            <img src="./assets/samguk/p52.svg" alt="제갈근" />
+            <span>제갈근</span>
+          </div>
+          <div class="samguk-card" data-index="52" data-name="보즐">
+            <img src="./assets/samguk/p53.svg" alt="보즐" />
+            <span>보즐</span>
+          </div>
+          <div class="samguk-card" data-index="53" data-name="우번">
+            <img src="./assets/samguk/p54.svg" alt="우번" />
+            <span>우번</span>
+          </div>
+          <div class="samguk-card" data-index="54" data-name="하후돈">
+            <img src="./assets/samguk/p55.svg" alt="하후돈" />
+            <span>하후돈</span>
+          </div>
+          <div class="samguk-card" data-index="55" data-name="하우연">
+            <img src="./assets/samguk/p56.svg" alt="하우연" />
+            <span>하우연</span>
+          </div>
+          <div class="samguk-card" data-index="56" data-name="조인">
+            <img src="./assets/samguk/p57.svg" alt="조인" />
+            <span>조인</span>
+          </div>
+          <div class="samguk-card" data-index="57" data-name="조홍">
+            <img src="./assets/samguk/p58.svg" alt="조홍" />
+            <span>조홍</span>
+          </div>
+          <div class="samguk-card" data-index="58" data-name="장료">
+            <img src="./assets/samguk/p59.svg" alt="장료" />
+            <span>장료</span>
+          </div>
+          <div class="samguk-card" data-index="59" data-name="악진">
+            <img src="./assets/samguk/p60.svg" alt="악진" />
+            <span>악진</span>
+          </div>
+          <div class="samguk-card" data-index="60" data-name="우금">
+            <img src="./assets/samguk/p61.svg" alt="우금" />
+            <span>우금</span>
+          </div>
+          <div class="samguk-card" data-index="61" data-name="허저">
+            <img src="./assets/samguk/p62.svg" alt="허저" />
+            <span>허저</span>
+          </div>
+          <div class="samguk-card" data-index="62" data-name="장합">
+            <img src="./assets/samguk/p63.svg" alt="장합" />
+            <span>장합</span>
+          </div>
+          <div class="samguk-card" data-index="63" data-name="엄백호">
+            <img src="./assets/samguk/p64.svg" alt="엄백호" />
+            <span>엄백호</span>
+          </div>
+          <div class="samguk-card" data-index="64" data-name="공융">
+            <img src="./assets/samguk/p65.svg" alt="공융" />
+            <span>공융</span>
+          </div>
+          <div class="samguk-card" data-index="65" data-name="유요">
+            <img src="./assets/samguk/p66.svg" alt="유요" />
+            <span>유요</span>
+          </div>
+          <div class="samguk-card" data-index="66" data-name="유언">
+            <img src="./assets/samguk/p67.svg" alt="유언" />
+            <span>유언</span>
+          </div>
+          <div class="samguk-card" data-index="67" data-name="교모">
+            <img src="./assets/samguk/p68.svg" alt="교모" />
+            <span>교모</span>
+          </div>
+          <div class="samguk-card" data-index="68" data-name="공손연">
+            <img src="./assets/samguk/p69.svg" alt="공손연" />
+            <span>공손연</span>
+          </div>
+          <div class="samguk-card" data-index="69" data-name="한수">
+            <img src="./assets/samguk/p70.svg" alt="한수" />
+            <span>한수</span>
+          </div>
+          <div class="samguk-card" data-index="70" data-name="맹획">
+            <img src="./assets/samguk/p71.svg" alt="맹획" />
+            <span>맹획</span>
+          </div>
+          <div class="samguk-card" data-index="71" data-name="장각">
+            <img src="./assets/samguk/p72.svg" alt="장각" />
+            <span>장각</span>
+          </div>
+          <div class="samguk-card" data-index="72" data-name="화타">
+            <img src="./assets/samguk/p73.svg" alt="화타" />
+            <span>화타</span>
+          </div>
+          <div class="samguk-card" data-index="73" data-name="초선">
+            <img src="./assets/samguk/p74.svg" alt="초선" />
+            <span>초선</span>
+          </div>
+          <div class="samguk-card" data-index="74" data-name="대교">
+            <img src="./assets/samguk/p75.svg" alt="대교" />
+            <span>대교</span>
+          </div>
+          <div class="samguk-card" data-index="75" data-name="소교">
+            <img src="./assets/samguk/p76.svg" alt="소교" />
+            <span>소교</span>
+          </div>
+          <div class="samguk-card" data-index="76" data-name="장양">
+            <img src="./assets/samguk/p77.svg" alt="장양" />
+            <span>장양</span>
+          </div>
+          <div class="samguk-card" data-index="77" data-name="우길">
+            <img src="./assets/samguk/p78.svg" alt="우길" />
+            <span>우길</span>
+          </div>
+          <div class="samguk-card" data-index="78" data-name="좌자">
+            <img src="./assets/samguk/p79.svg" alt="좌자" />
+            <span>좌자</span>
+          </div>
+          <div class="samguk-card" data-index="79" data-name="사마휘">
+            <img src="./assets/samguk/p80.svg" alt="사마휘" />
+            <span>사마휘</span>
+          </div>
+          <div class="samguk-card" data-index="80" data-name="허소">
+            <img src="./assets/samguk/p81.svg" alt="허소" />
+            <span>허소</span>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script src="./samguk-app.js"></script>
+  </body>
+</html>

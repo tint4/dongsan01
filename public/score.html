@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>점수 뽑기</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="home-shell score-shell">
+      <nav class="page-nav" aria-label="페이지 이동">
+        <a class="home-back-link" href="./index.html">메인페이지로 돌아가기</a>
+      </nav>
+
+      <section class="home-section" aria-label="점수 뽑기판">
+        <h2>점수</h2>
+        <div class="score-draw-panel">
+          <div class="score-preview" aria-live="polite">
+            <strong id="scorePreviewCard">A1</strong>
+            <span id="scorePreviewValue">?</span>
+          </div>
+          <div class="score-draw-actions">
+            <button id="scoreDrawButton" type="button">뽑기</button>
+            <p id="scoreDrawStatus">남은 뽑기 20번</p>
+            <p id="scoreTotal">합계 0점</p>
+            <button id="scoreResetButton" type="button">다시 시작</button>
+          </div>
+        </div>
+        <div id="scoreGrid" class="score-grid"></div>
+      </section>
+    </main>
+    <script src="./score-app.js"></script>
+  </body>
+</html>
