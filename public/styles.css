@@ -237,6 +237,15 @@ select {
   grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
+.hidden-gum-link,
+.hidden-gum-link:visited {
+  color: #fff;
+}
+
+.hidden-gum-link:hover {
+  color: #fff;
+}
+
 .draw-grid {
   grid-template-columns: repeat(6, minmax(0, 1fr));
 }
