@@ -37,7 +37,7 @@ const communityBreadSubcategories = [
   "카스테라",
   "크루아상",
   "크림빵",
-  "호밀빵",
+  "케익",
   "햄버거"
 ];
 const communityPosts = globalThis.__communityPosts || (globalThis.__communityPosts = createCommunitySeedPosts());
@@ -278,7 +278,7 @@ function parseGumvitRaceLinks(html, loc, type) {
 }
 
 function parseGumvitDetail(html, raceNo) {
-  const scoreWeights = [3, 1, 1, 0, 2];
+  const scoreWeights = [5, 4, 3, 1, 2];
   const horseMeta = new Map();
   const entrySection = (html.match(/<td[^>]*>\s*마번\s*<\/td>[\s\S]*?<td[^>]*>\s*조교\s*<\/td>[\s\S]*?<\/table>/) || [])[0] || "";
   [...entrySection.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)]
