@@ -304,6 +304,25 @@ select {
   text-align: center;
 }
 
+.samguk-result {
+  margin: 0 0 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  background: #f8fafc;
+  color: var(--muted);
+  font-size: 18px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.samguk-result.complete {
+  border-color: #f59e0b;
+  background: #fff7d6;
+  color: #7c2d12;
+  font-size: 22px;
+  font-weight: 900;
+}
+
 .samguk-card {
   display: grid;
   gap: 10px;
