@@ -314,6 +314,13 @@ function isUpcomingGumvitRace(race, now = kstNowParts()) {
   return gumvitStartMinutes(race.startTime) > now.minutes;
 }
 
+function isPastGumvitRace(race, now = kstNowParts()) {
+  if (!race.date) return false;
+  if (race.date < now.date) return true;
+  if (race.date > now.date) return false;
+  return gumvitStartMinutes(race.startTime) <= now.minutes;
+}
+
 function parseGumvitRaceLinks(html, loc, type) {
   const seen = new Set();
   const fromRows = [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)]
@@ -425,9 +432,10 @@ async function handleGumvitScores(req, res) {
         return parseGumvitRaceLinks(listHtml, config.loc, config.type);
       }));
       const now = kstNowParts();
-      const races = allRaceGroups.flat()
-        .filter((race) => isUpcomingGumvitRace(race, now))
+      const allRaces = allRaceGroups.flat()
         .sort((a, b) => (a.date || "").localeCompare(b.date || "") || a.startMinutes - b.startMinutes || a.raceNo - b.raceNo);
+      const upcomingRaces = allRaces.filter((race) => isUpcomingGumvitRace(race, now));
+      const races = upcomingRaces.length ? upcomingRaces : allRaces;
       if (!races.length) return sendJson(res, 404, { error: "남은 경주 목록을 찾지 못했습니다." });
 
       const results = await Promise.all(races.map(async (race) => {
@@ -437,7 +445,7 @@ async function handleGumvitScores(req, res) {
           type: race.type,
           loc: race.loc
         });
-        return { ...race, ...parseGumvitDetail(detailHtml, race.raceNo) };
+        return { ...race, isPast: isPastGumvitRace(race, now), ...parseGumvitDetail(detailHtml, race.raceNo) };
       }));
 
       return sendJson(res, 200, {
@@ -446,6 +454,7 @@ async function handleGumvitScores(req, res) {
         day,
         searchedAt: new Date().toISOString(),
         date: races[0].date || "",
+        showingPastRaces: !upcomingRaces.length,
         weights: { "★": 5, "◎": 4, "○": 3, "▲": 1, "※": 2 },
         races: results
       });

@@ -21,6 +21,8 @@ async function apiGet(path) {
 }
 
 function renderRace(race) {
+  const closedLabel = race.isPast ? " 종료" : "";
+  const locClass = `gumvit-loc-${String(race.loc || "").toUpperCase()}`;
   const rows = race.horses.map((horse) => `
     <tr class="gumvit-grade-${horse.grade}">
       <td>${horse.rank}</td>
@@ -34,8 +36,13 @@ function renderRace(race) {
   `).join("");
 
   return `
-    <h3 class="direction-title">${race.locName || ""} ${race.raceNo}경주 ${race.startTime || ""}</h3>
-    <div class="table-wrap">
+    <section class="gumvit-race ${locClass}">
+      <h3 class="direction-title gumvit-race-title">
+        <span class="gumvit-race-time">${race.startTime || ""}</span>
+        <span class="gumvit-loc-badge">${race.locName || ""}</span>
+        <span>${race.raceNo}경주${closedLabel}</span>
+      </h3>
+      <div class="table-wrap">
       <table>
         <thead>
           <tr>
@@ -50,15 +57,17 @@ function renderRace(race) {
         </thead>
         <tbody>${rows || '<tr><td colspan="7">조회된 말 정보가 없습니다.</td></tr>'}</tbody>
       </table>
-    </div>
+      </div>
+    </section>
   `;
 }
 
 function renderResult(data) {
+  const timeNotice = data.showingPastRaces ? " · 남은 경주가 없어 전체 경주를 시간순으로 표시" : " · 현재 시간 이후 경주만 시간순 표시";
   resultEl.innerHTML = `
     <p class="post-kicker">검빛</p>
     <h2 class="post-title">${label} 검빛 점수표</h2>
-    <p class="post-meta">${data.date || ""} 기준 · ★ 5점, ◎ 4점, ○ 3점, ▲ 1점, ※ 2점</p>
+    <p class="post-meta">${data.date || ""} 기준 · ★ 5점, ◎ 4점, ○ 3점, ▲ 1점, ※ 2점${day ? timeNotice : ""}</p>
     <div class="table-wrap">
       <table class="route-info-table">
         <tbody>

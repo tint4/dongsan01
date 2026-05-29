@@ -852,6 +852,66 @@ select {
   background: #f1e9ff;
 }
 
+.gumvit-race {
+  margin: 22px 0;
+  padding: 12px 12px 14px;
+  border: 1px solid var(--line);
+  border-left: 8px solid #64748b;
+  background: #ffffff;
+}
+
+.gumvit-race-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 0;
+}
+
+.gumvit-race-time {
+  color: #111827;
+  font-weight: 900;
+}
+
+.gumvit-loc-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 54px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  color: #fff;
+  font-weight: 900;
+}
+
+.gumvit-loc-S {
+  border-left-color: #dc2626;
+  background: #fff7f7;
+}
+
+.gumvit-loc-S .gumvit-loc-badge {
+  background: #dc2626;
+}
+
+.gumvit-loc-B {
+  border-left-color: #2563eb;
+  background: #f5f9ff;
+}
+
+.gumvit-loc-B .gumvit-loc-badge {
+  background: #2563eb;
+}
+
+.gumvit-loc-J {
+  border-left-color: #16a34a;
+  background: #f3fbf5;
+}
+
+.gumvit-loc-J .gumvit-loc-badge {
+  background: #16a34a;
+}
+
 .gumvit-post,
 .gumvit-post td,
 .gumvit-post th,
