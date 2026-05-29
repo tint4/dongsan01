@@ -261,17 +261,97 @@ async function fetchGumvitPage(pathname, params = {}) {
   return text;
 }
 
+function gumvitLocName(loc) {
+  return ({ S: "서울", B: "부산", J: "제주" })[String(loc || "").toUpperCase()] || loc || "";
+}
+
+function gumvitDayConfigs(day) {
+  const groups = {
+    friday: [
+      { loc: "B", type: "5" },
+      { loc: "J", type: "5" }
+    ],
+    saturday: [
+      { loc: "S", type: "6" },
+      { loc: "J", type: "6" }
+    ],
+    sunday: [
+      { loc: "S", type: "7" },
+      { loc: "B", type: "7" }
+    ]
+  };
+  return groups[String(day || "").toLowerCase()] || null;
+}
+
+function gumvitStartMinutes(startTime) {
+  const match = String(startTime || "").match(/(\d{1,2}):(\d{2})/);
+  if (!match) return 9999;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function kstNowParts() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(new Date()).reduce((acc, part) => {
+    acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    minutes: Number(parts.hour) * 60 + Number(parts.minute)
+  };
+}
+
+function isUpcomingGumvitRace(race, now = kstNowParts()) {
+  if (!race.date || race.date > now.date) return true;
+  if (race.date < now.date) return false;
+  return gumvitStartMinutes(race.startTime) > now.minutes;
+}
+
 function parseGumvitRaceLinks(html, loc, type) {
   const seen = new Set();
+  const fromRows = [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)]
+    .map((match) => match[1])
+    .filter((row) => /race_no=/.test(row))
+    .map((row) => {
+      const link = row.match(/chulma_detail\.html\?([^"']*race_no=(\d+)[^"']*)/);
+      if (!link) return null;
+      const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((cell) => htmlText(cell[1]));
+      const params = new URLSearchParams(link[1].replace(/&amp;/g, "&"));
+      const raceNo = Number(params.get("race_no") || link[2]);
+      const date = params.get("m_date") || cells[1] || "";
+      const key = `${loc}-${type}-${date}-${raceNo}`;
+      if (!raceNo || seen.has(key)) return null;
+      seen.add(key);
+      return {
+        raceNo,
+        date,
+        loc,
+        type,
+        locName: gumvitLocName(loc),
+        startTime: cells[9] || "",
+        startMinutes: gumvitStartMinutes(cells[9] || "")
+      };
+    })
+    .filter(Boolean);
+
+  if (fromRows.length) return fromRows.sort((a, b) => a.raceNo - b.raceNo);
+
   return [...html.matchAll(/chulma_detail\.html\?([^"']*race_no=(\d+)[^"']*)/g)]
     .map((match) => {
       const params = new URLSearchParams(match[1].replace(/&amp;/g, "&"));
       const raceNo = Number(params.get("race_no") || match[2]);
       const date = params.get("m_date") || "";
-      const key = `${date}-${raceNo}`;
+      const key = `${loc}-${type}-${date}-${raceNo}`;
       if (!raceNo || seen.has(key)) return null;
       seen.add(key);
-      return { raceNo, date, loc, type };
+      return { raceNo, date, loc, type, locName: gumvitLocName(loc), startTime: "", startMinutes: 9999 };
     })
     .filter(Boolean)
     .sort((a, b) => a.raceNo - b.raceNo);
@@ -337,6 +417,40 @@ function parseGumvitDetail(html, raceNo) {
 
 async function handleGumvitScores(req, res) {
   try {
+    const day = String(req.searchParams.get("day") || "").trim().toLowerCase();
+    const configs = gumvitDayConfigs(day);
+    if (configs) {
+      const allRaceGroups = await Promise.all(configs.map(async (config) => {
+        const listHtml = await fetchGumvitPage("/statv40/chulma.html", config);
+        return parseGumvitRaceLinks(listHtml, config.loc, config.type);
+      }));
+      const now = kstNowParts();
+      const races = allRaceGroups.flat()
+        .filter((race) => isUpcomingGumvitRace(race, now))
+        .sort((a, b) => (a.date || "").localeCompare(b.date || "") || a.startMinutes - b.startMinutes || a.raceNo - b.raceNo);
+      if (!races.length) return sendJson(res, 404, { error: "남은 경주 목록을 찾지 못했습니다." });
+
+      const results = await Promise.all(races.map(async (race) => {
+        const detailHtml = await fetchGumvitPage("/statv40/chulma_detail.html", {
+          m_date: race.date,
+          race_no: race.raceNo,
+          type: race.type,
+          loc: race.loc
+        });
+        return { ...race, ...parseGumvitDetail(detailHtml, race.raceNo) };
+      }));
+
+      return sendJson(res, 200, {
+        source: "검빛",
+        officialUrl: `${GUMVIT_ORIGIN}/statv40/chulma.html`,
+        day,
+        searchedAt: new Date().toISOString(),
+        date: races[0].date || "",
+        weights: { "★": 5, "◎": 4, "○": 3, "▲": 1, "※": 2 },
+        races: results
+      });
+    }
+
     const loc = String(req.searchParams.get("loc") || "S").trim().toUpperCase();
     const type = String(req.searchParams.get("type") || "6").replace(/\D/g, "") || "6";
     const listHtml = await fetchGumvitPage("/statv40/chulma.html", { type, loc });

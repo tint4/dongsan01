@@ -5,6 +5,7 @@ const pageTitle = document.querySelector("#pageTitle");
 const params = new URLSearchParams(window.location.search);
 const loc = params.get("loc") || "S";
 const type = params.get("type") || "6";
+const day = params.get("day") || "";
 const label = params.get("label") || "서울(토)";
 
 function setStatus(message, isError = false) {
@@ -33,7 +34,7 @@ function renderRace(race) {
   `).join("");
 
   return `
-    <h3 class="direction-title">${race.raceNo}경주</h3>
+    <h3 class="direction-title">${race.locName || ""} ${race.raceNo}경주 ${race.startTime || ""}</h3>
     <div class="table-wrap">
       <table>
         <thead>
@@ -78,7 +79,10 @@ async function loadScores() {
   pageTitle.textContent = `${label} 검빛 점수표`;
   try {
     setStatus(`${label} 검빛 출마표를 불러오고 있습니다.`);
-    const data = await apiGet(`/api/gumvit/scores?loc=${encodeURIComponent(loc)}&type=${encodeURIComponent(type)}`);
+    const query = day
+      ? `day=${encodeURIComponent(day)}`
+      : `loc=${encodeURIComponent(loc)}&type=${encodeURIComponent(type)}`;
+    const data = await apiGet(`/api/gumvit/scores?${query}`);
     renderResult(data);
     setStatus(`${data.races.length}개 경주의 점수표를 만들었습니다.`);
   } catch (error) {
