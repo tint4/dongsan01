@@ -4,7 +4,12 @@ const stockResult = document.querySelector("#stockResult");
 
 const stockParams = new URLSearchParams(window.location.search);
 const stockSymbol = (stockParams.get("symbol") || "000660").replace(/\D/g, "").padStart(6, "0");
-const stockSymbols = (stockParams.get("symbols") || "").split(",").map((value) => value.replace(/\D/g, "").padStart(6, "0")).filter((value) => /^\d{6}$/.test(value));
+const stockSymbols = (stockParams.get("symbols") || "")
+  .split(",")
+  .map((value) => value.replace(/\D/g, ""))
+  .filter(Boolean)
+  .map((value) => value.padStart(6, "0"))
+  .filter((value) => /^\d{6}$/.test(value));
 const stockNames = stockParams.get("names") || "";
 const stockName = stockParams.get("name") || (stockSymbol === "005930" ? "삼성전자" : "하이닉스");
 
