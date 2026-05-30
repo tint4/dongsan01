@@ -477,6 +477,37 @@ select {
   color: #fff;
 }
 
+.stock-shell {
+  width: min(1120px, calc(100% - 28px));
+}
+
+.stock-post,
+.stock-post td,
+.stock-post th,
+.stock-post .post-kicker,
+.stock-post .post-title,
+.stock-post .post-meta {
+  text-align: center;
+}
+
+.stock-notice {
+  margin: 14px 0;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.stock-up {
+  color: #dc2626;
+  font-weight: 900;
+}
+
+.stock-down {
+  color: #2563eb;
+  font-weight: 900;
+}
+
 .community-shell {
   width: min(1180px, calc(100% - 28px));
   margin: 24px auto 70px;

@@ -3093,6 +3093,121 @@ async function handleNaverPostWorker(request, res) {
   }
 }
 
+function formatKstDateCompact(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date).reduce((acc, part) => {
+    acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return `${parts.year}${parts.month}${parts.day}`;
+}
+
+function parseNaverMinuteRows(text) {
+  return [...String(text || "").matchAll(/\["(\d{12})",\s*([^,\]]+),\s*([^,\]]+),\s*([^,\]]+),\s*([^,\]]+),\s*([^,\]]+)/g)]
+    .map((match) => {
+      const close = Number(String(match[5]).replace(/,/g, ""));
+      const volume = Number(String(match[6]).replace(/,/g, ""));
+      return {
+        stamp: match[1],
+        date: match[1].slice(0, 8),
+        time: `${match[1].slice(8, 10)}:${match[1].slice(10, 12)}`,
+        close: Number.isFinite(close) ? close : null,
+        volume: Number.isFinite(volume) ? volume : 0
+      };
+    })
+    .filter((row) => row.close !== null)
+    .sort((a, b) => a.stamp.localeCompare(b.stamp));
+}
+
+function buildThirtyMinuteStockAverages(rows) {
+  const slots = [];
+  for (let minutes = 9 * 60; minutes < 20 * 60; minutes += 30) {
+    const hour = String(Math.floor(minutes / 60)).padStart(2, "0");
+    const minute = String(minutes % 60).padStart(2, "0");
+    const end = minutes + 30;
+    const endHour = String(Math.floor(end / 60)).padStart(2, "0");
+    const endMinute = String(end % 60).padStart(2, "0");
+    slots.push({
+      startMinutes: minutes,
+      label: `${hour}:${minute}~${endHour}:${endMinute}`,
+      changes: [],
+      rates: []
+    });
+  }
+
+  const previousByDate = new Map();
+  rows.forEach((row) => {
+    const [hour, minute] = row.time.split(":").map(Number);
+    const minutes = hour * 60 + minute;
+    if (minutes < 9 * 60 || minutes >= 20 * 60) {
+      previousByDate.set(row.date, row.close);
+      return;
+    }
+    const previous = previousByDate.get(row.date);
+    if (Number.isFinite(previous) && previous > 0) {
+      const slot = slots.find((item) => minutes >= item.startMinutes && minutes < item.startMinutes + 30);
+      if (slot) {
+        const change = row.close - previous;
+        slot.changes.push(change);
+        slot.rates.push((change / previous) * 100);
+      }
+    }
+    previousByDate.set(row.date, row.close);
+  });
+
+  return slots.map((slot) => {
+    const count = slot.changes.length;
+    const avgChange = count ? slot.changes.reduce((sum, value) => sum + value, 0) / count : null;
+    const avgRate = count ? slot.rates.reduce((sum, value) => sum + value, 0) / count : null;
+    return {
+      timeRange: slot.label,
+      count,
+      averageChange: avgChange,
+      averageRate: avgRate
+    };
+  });
+}
+
+async function handleStockIntradayAverageWorker(req, res) {
+  try {
+    const symbol = String(req.searchParams.get("symbol") || "000660").replace(/\D/g, "").padStart(6, "0");
+    const name = String(req.searchParams.get("name") || (symbol === "005930" ? "삼성전자" : "하이닉스")).trim();
+    const startDate = String(req.searchParams.get("start") || "20251001").replace(/\D/g, "") || "20251001";
+    const endDate = String(req.searchParams.get("end") || formatKstDateCompact()).replace(/\D/g, "") || formatKstDateCompact();
+    const url = new URL("https://api.finance.naver.com/siseJson.naver");
+    url.searchParams.set("symbol", symbol);
+    url.searchParams.set("requestType", "1");
+    url.searchParams.set("startTime", startDate);
+    url.searchParams.set("endTime", endDate);
+    url.searchParams.set("timeframe", "minute");
+    const response = await fetch(url, { headers: { "user-agent": USER_AGENT, referer: "https://finance.naver.com/" } });
+    const text = await response.text();
+    if (!response.ok || /Validation Failed/i.test(text)) throw new Error(`네이버 금융 분봉 응답 오류 ${response.status}`);
+    const rows = parseNaverMinuteRows(text);
+    const dates = [...new Set(rows.map((row) => row.date))].sort();
+    return sendJson(res, 200, {
+      source: "네이버 금융 분봉",
+      symbol,
+      name,
+      requestedStartDate: startDate,
+      requestedEndDate: endDate,
+      actualStartDate: dates[0] || "",
+      actualEndDate: dates[dates.length - 1] || "",
+      tradingDayCount: dates.length,
+      minuteRowCount: rows.length,
+      marketHours: "09:00~20:00",
+      notice: "네이버 금융이 실제 제공한 분봉 데이터 기준으로 계산했습니다. 장외/애프터 시간대 데이터가 제공되지 않는 구간은 빈값으로 표시됩니다.",
+      rows: buildThirtyMinuteStockAverages(rows)
+    });
+  } catch (error) {
+    return sendJson(res, 502, { error: error.message });
+  }
+}
+
 async function runApi(handler, req, request) {
   let status = 200;
   let headers = { "content-type": "application/json; charset=utf-8" };
@@ -3154,6 +3269,7 @@ export default {
     if (url.pathname === "/api/calt/routes") return runApi(handleCaltRoutes, req);
     if (url.pathname === "/api/klimousine/search") return runApi(handleKlimousineSearch, req);
     if (url.pathname === "/api/klimousine/routes") return runApi(handleKlimousineRoutes, req);
+    if (url.pathname === "/api/stocks/intraday-average") return runApi(handleStockIntradayAverageWorker, req);
     return env.ASSETS.fetch(request);
   }
 };
