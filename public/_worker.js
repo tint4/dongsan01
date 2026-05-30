@@ -3172,36 +3172,86 @@ function buildThirtyMinuteStockAverages(rows) {
   });
 }
 
+async function fetchNaverStockAverage({ symbol, name, startDate, endDate }) {
+  const url = new URL("https://api.finance.naver.com/siseJson.naver");
+  url.searchParams.set("symbol", symbol);
+  url.searchParams.set("requestType", "1");
+  url.searchParams.set("startTime", startDate);
+  url.searchParams.set("endTime", endDate);
+  url.searchParams.set("timeframe", "minute");
+  const response = await fetch(url, { headers: { "user-agent": USER_AGENT, referer: "https://finance.naver.com/" } });
+  const text = await response.text();
+  if (!response.ok || /Validation Failed/i.test(text)) throw new Error(`Naver finance minute response error ${response.status}`);
+  const minuteRows = parseNaverMinuteRows(text);
+  const dates = [...new Set(minuteRows.map((row) => row.date))].sort();
+  return {
+    symbol,
+    name,
+    actualStartDate: dates[0] || "",
+    actualEndDate: dates[dates.length - 1] || "",
+    tradingDayCount: dates.length,
+    minuteRowCount: minuteRows.length,
+    rows: buildThirtyMinuteStockAverages(minuteRows)
+  };
+}
+
+function buildStockGroupAverage(stocks) {
+  const firstRows = stocks[0]?.rows || [];
+  return firstRows.map((row, index) => {
+    const slotRows = stocks.map((stock) => stock.rows[index]).filter(Boolean);
+    const changeRows = slotRows.filter((item) => Number.isFinite(item.averageChange));
+    const rateRows = slotRows.filter((item) => Number.isFinite(item.averageRate));
+    const totalCount = slotRows.reduce((sum, item) => sum + Number(item.count || 0), 0);
+    return {
+      timeRange: row.timeRange,
+      count: totalCount,
+      averageChange: changeRows.length ? changeRows.reduce((sum, item) => sum + item.averageChange, 0) / changeRows.length : null,
+      averageRate: rateRows.length ? rateRows.reduce((sum, item) => sum + item.averageRate, 0) / rateRows.length : null
+    };
+  });
+}
+
 async function handleStockIntradayAverageWorker(req, res) {
   try {
-    const symbol = String(req.searchParams.get("symbol") || "000660").replace(/\D/g, "").padStart(6, "0");
-    const name = String(req.searchParams.get("name") || (symbol === "005930" ? "삼성전자" : "하이닉스")).trim();
+    const symbolList = String(req.searchParams.get("symbols") || req.searchParams.get("symbol") || "000660")
+      .split(",")
+      .map((value) => value.replace(/\D/g, "").padStart(6, "0"))
+      .filter((value) => /^\d{6}$/.test(value));
+    const symbols = symbolList.length ? symbolList : ["000660"];
+    const nameList = String(req.searchParams.get("names") || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const name = String(req.searchParams.get("name") || req.searchParams.get("label") || nameList.join(", ") || (symbols[0] === "005930" ? "????" : "????")).trim();
     const startDate = String(req.searchParams.get("start") || "20251001").replace(/\D/g, "") || "20251001";
     const endDate = String(req.searchParams.get("end") || formatKstDateCompact()).replace(/\D/g, "") || formatKstDateCompact();
-    const url = new URL("https://api.finance.naver.com/siseJson.naver");
-    url.searchParams.set("symbol", symbol);
-    url.searchParams.set("requestType", "1");
-    url.searchParams.set("startTime", startDate);
-    url.searchParams.set("endTime", endDate);
-    url.searchParams.set("timeframe", "minute");
-    const response = await fetch(url, { headers: { "user-agent": USER_AGENT, referer: "https://finance.naver.com/" } });
-    const text = await response.text();
-    if (!response.ok || /Validation Failed/i.test(text)) throw new Error(`네이버 금융 분봉 응답 오류 ${response.status}`);
-    const rows = parseNaverMinuteRows(text);
-    const dates = [...new Set(rows.map((row) => row.date))].sort();
-    return sendJson(res, 200, {
-      source: "네이버 금융 분봉",
+    const stocks = await Promise.all(symbols.map((symbol, index) => fetchNaverStockAverage({
       symbol,
+      name: nameList[index] || symbol,
+      startDate,
+      endDate
+    })));
+    const actualStarts = stocks.map((stock) => stock.actualStartDate).filter(Boolean).sort();
+    const actualEnds = stocks.map((stock) => stock.actualEndDate).filter(Boolean).sort();
+    return sendJson(res, 200, {
+      source: "??? ?? ??",
+      symbol: symbols.join(","),
+      symbols,
       name,
+      names: nameList.length ? nameList : stocks.map((stock) => stock.name),
+      aggregate: symbols.length > 1,
+      stocks,
       requestedStartDate: startDate,
       requestedEndDate: endDate,
-      actualStartDate: dates[0] || "",
-      actualEndDate: dates[dates.length - 1] || "",
-      tradingDayCount: dates.length,
-      minuteRowCount: rows.length,
+      actualStartDate: actualStarts[0] || "",
+      actualEndDate: actualEnds[actualEnds.length - 1] || "",
+      tradingDayCount: Math.max(...stocks.map((stock) => stock.tradingDayCount), 0),
+      minuteRowCount: stocks.reduce((sum, stock) => sum + stock.minuteRowCount, 0),
       marketHours: "09:00~20:00",
-      notice: "네이버 금융이 실제 제공한 분봉 데이터 기준으로 계산했습니다. 장외/애프터 시간대 데이터가 제공되지 않는 구간은 빈값으로 표시됩니다.",
-      rows: buildThirtyMinuteStockAverages(rows)
+      notice: symbols.length > 1
+        ? "? ??? ??? ?? ?? 30? ???? ?? ?, ?? ????? ?? ??? ????."
+        : "??? ???? ?? ??? ?? ???? ???? ??????. ??/??? ??? ???? ???? ?? ??? ???? ??? ? ????.",
+      rows: symbols.length > 1 ? buildStockGroupAverage(stocks) : stocks[0].rows
     });
   } catch (error) {
     return sendJson(res, 502, { error: error.message });

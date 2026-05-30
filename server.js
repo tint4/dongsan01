@@ -289,24 +289,111 @@ async function fetchGumvitPage(pathname, params = {}) {
   return text;
 }
 
+function gumvitLocName(loc) {
+  return ({ S: "서울", B: "부산", J: "제주" })[String(loc || "").toUpperCase()] || loc || "";
+}
+
+function gumvitDayConfigs(day) {
+  const groups = {
+    friday: [
+      { loc: "B", type: "5" },
+      { loc: "J", type: "5" }
+    ],
+    saturday: [
+      { loc: "S", type: "6" },
+      { loc: "J", type: "6" }
+    ],
+    sunday: [
+      { loc: "S", type: "7" },
+      { loc: "B", type: "7" }
+    ]
+  };
+  return groups[String(day || "").toLowerCase()] || null;
+}
+
+function gumvitStartMinutes(startTime) {
+  const match = String(startTime || "").match(/(\d{1,2}):(\d{2})/);
+  if (!match) return 9999;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function kstNowParts() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(new Date()).reduce((acc, part) => {
+    acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    minutes: Number(parts.hour) * 60 + Number(parts.minute)
+  };
+}
+
+function isUpcomingGumvitRace(race, now = kstNowParts()) {
+  if (!race.date || race.date > now.date) return true;
+  if (race.date < now.date) return false;
+  return gumvitStartMinutes(race.startTime) > now.minutes;
+}
+
+function isPastGumvitRace(race, now = kstNowParts()) {
+  if (!race.date) return false;
+  if (race.date < now.date) return true;
+  if (race.date > now.date) return false;
+  return gumvitStartMinutes(race.startTime) <= now.minutes;
+}
+
 function parseGumvitRaceLinks(html, loc, type) {
   const seen = new Set();
+  const fromRows = [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)]
+    .map((match) => match[1])
+    .filter((row) => /race_no=/.test(row))
+    .map((row) => {
+      const link = row.match(/chulma_detail\.html\?([^"']*race_no=(\d+)[^"']*)/);
+      if (!link) return null;
+      const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((cell) => htmlText(cell[1]));
+      const params = new URLSearchParams(link[1].replace(/&amp;/g, "&"));
+      const raceNo = Number(params.get("race_no") || link[2]);
+      const date = params.get("m_date") || cells[1] || "";
+      const key = `${loc}-${type}-${date}-${raceNo}`;
+      if (!raceNo || seen.has(key)) return null;
+      seen.add(key);
+      return {
+        raceNo,
+        date,
+        loc,
+        type,
+        locName: gumvitLocName(loc),
+        startTime: cells[9] || "",
+        startMinutes: gumvitStartMinutes(cells[9] || "")
+      };
+    })
+    .filter(Boolean);
+
+  if (fromRows.length) return fromRows.sort((a, b) => a.raceNo - b.raceNo);
+
   return [...html.matchAll(/chulma_detail\.html\?([^"']*race_no=(\d+)[^"']*)/g)]
     .map((match) => {
       const params = new URLSearchParams(match[1].replace(/&amp;/g, "&"));
       const raceNo = Number(params.get("race_no") || match[2]);
       const date = params.get("m_date") || "";
-      const key = `${date}-${raceNo}`;
+      const key = `${loc}-${type}-${date}-${raceNo}`;
       if (!raceNo || seen.has(key)) return null;
       seen.add(key);
-      return { raceNo, date, loc, type };
+      return { raceNo, date, loc, type, locName: gumvitLocName(loc), startTime: "", startMinutes: 9999 };
     })
     .filter(Boolean)
     .sort((a, b) => a.raceNo - b.raceNo);
 }
 
 function parseGumvitDetail(html, raceNo) {
-  const scoreWeights = [3, 1, 1, 0, 2];
+  const scoreWeights = [5, 4, 3, 1, 2];
   const horseMeta = new Map();
   const entrySection = (html.match(/<td[^>]*>\s*마번\s*<\/td>[\s\S]*?<td[^>]*>\s*조교\s*<\/td>[\s\S]*?<\/table>/) || [])[0] || "";
   [...entrySection.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)]
@@ -365,6 +452,42 @@ function parseGumvitDetail(html, raceNo) {
 
 async function handleGumvitScores(req, res) {
   try {
+    const day = String(req.searchParams.get("day") || "").trim().toLowerCase();
+    const configs = gumvitDayConfigs(day);
+    if (configs) {
+      const allRaceGroups = await Promise.all(configs.map(async (config) => {
+        const listHtml = await fetchGumvitPage("/statv40/chulma.html", config);
+        return parseGumvitRaceLinks(listHtml, config.loc, config.type);
+      }));
+      const now = kstNowParts();
+      const allRaces = allRaceGroups.flat()
+        .sort((a, b) => (a.date || "").localeCompare(b.date || "") || a.startMinutes - b.startMinutes || a.raceNo - b.raceNo);
+      const upcomingRaces = allRaces.filter((race) => isUpcomingGumvitRace(race, now));
+      const races = upcomingRaces.length ? upcomingRaces : allRaces;
+      if (!races.length) return sendJson(res, 404, { error: "남은 경주 목록을 찾지 못했습니다." });
+
+      const results = await Promise.all(races.map(async (race) => {
+        const detailHtml = await fetchGumvitPage("/statv40/chulma_detail.html", {
+          m_date: race.date,
+          race_no: race.raceNo,
+          type: race.type,
+          loc: race.loc
+        });
+        return { ...race, isPast: isPastGumvitRace(race, now), ...parseGumvitDetail(detailHtml, race.raceNo) };
+      }));
+
+      return sendJson(res, 200, {
+        source: "검빛",
+        officialUrl: `${GUMVIT_ORIGIN}/statv40/chulma.html`,
+        day,
+        searchedAt: new Date().toISOString(),
+        date: races[0].date || "",
+        showingPastRaces: !upcomingRaces.length,
+        weights: { "★": 5, "◎": 4, "○": 3, "▲": 1, "※": 2 },
+        races: results
+      });
+    }
+
     const loc = String(req.searchParams.get("loc") || "S").trim().toUpperCase();
     const type = String(req.searchParams.get("type") || "6").replace(/\D/g, "") || "6";
     const listHtml = await fetchGumvitPage("/statv40/chulma.html", { type, loc });
@@ -1597,7 +1720,7 @@ const communityBreadSubcategories = [
   "카스테라",
   "크루아상",
   "크림빵",
-  "호밀빵",
+  "케익",
   "햄버거"
 ];
 
@@ -3121,6 +3244,171 @@ async function handleNaverPost(request, res) {
   }
 }
 
+function formatKstDateCompact(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date).reduce((acc, part) => {
+    acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return `${parts.year}${parts.month}${parts.day}`;
+}
+
+function parseNaverMinuteRows(text) {
+  return [...String(text || "").matchAll(/\["(\d{12})",\s*([^,\]]+),\s*([^,\]]+),\s*([^,\]]+),\s*([^,\]]+),\s*([^,\]]+)/g)]
+    .map((match) => {
+      const close = Number(String(match[5]).replace(/,/g, ""));
+      const volume = Number(String(match[6]).replace(/,/g, ""));
+      return {
+        stamp: match[1],
+        date: match[1].slice(0, 8),
+        time: `${match[1].slice(8, 10)}:${match[1].slice(10, 12)}`,
+        close: Number.isFinite(close) ? close : null,
+        volume: Number.isFinite(volume) ? volume : 0
+      };
+    })
+    .filter((row) => row.close !== null)
+    .sort((a, b) => a.stamp.localeCompare(b.stamp));
+}
+
+function buildThirtyMinuteStockAverages(rows) {
+  const slots = [];
+  for (let minutes = 9 * 60; minutes < 20 * 60; minutes += 30) {
+    const hour = String(Math.floor(minutes / 60)).padStart(2, "0");
+    const minute = String(minutes % 60).padStart(2, "0");
+    const end = minutes + 30;
+    const endHour = String(Math.floor(end / 60)).padStart(2, "0");
+    const endMinute = String(end % 60).padStart(2, "0");
+    slots.push({
+      startMinutes: minutes,
+      label: `${hour}:${minute}~${endHour}:${endMinute}`,
+      changes: [],
+      rates: []
+    });
+  }
+
+  const previousByDate = new Map();
+  rows.forEach((row) => {
+    const [hour, minute] = row.time.split(":").map(Number);
+    const minutes = hour * 60 + minute;
+    if (minutes < 9 * 60 || minutes >= 20 * 60) {
+      previousByDate.set(row.date, row.close);
+      return;
+    }
+    const previous = previousByDate.get(row.date);
+    if (Number.isFinite(previous) && previous > 0) {
+      const slot = slots.find((item) => minutes >= item.startMinutes && minutes < item.startMinutes + 30);
+      if (slot) {
+        const change = row.close - previous;
+        slot.changes.push(change);
+        slot.rates.push((change / previous) * 100);
+      }
+    }
+    previousByDate.set(row.date, row.close);
+  });
+
+  return slots.map((slot) => {
+    const count = slot.changes.length;
+    const avgChange = count ? slot.changes.reduce((sum, value) => sum + value, 0) / count : null;
+    const avgRate = count ? slot.rates.reduce((sum, value) => sum + value, 0) / count : null;
+    return {
+      timeRange: slot.label,
+      count,
+      averageChange: avgChange,
+      averageRate: avgRate
+    };
+  });
+}
+
+async function fetchNaverStockAverage({ symbol, name, startDate, endDate }) {
+  const url = new URL("https://api.finance.naver.com/siseJson.naver");
+  url.searchParams.set("symbol", symbol);
+  url.searchParams.set("requestType", "1");
+  url.searchParams.set("startTime", startDate);
+  url.searchParams.set("endTime", endDate);
+  url.searchParams.set("timeframe", "minute");
+  const response = await fetch(url, { headers: { "user-agent": USER_AGENT, referer: "https://finance.naver.com/" } });
+  const text = await response.text();
+  if (!response.ok || /Validation Failed/i.test(text)) throw new Error(`Naver finance minute response error ${response.status}`);
+  const minuteRows = parseNaverMinuteRows(text);
+  const dates = [...new Set(minuteRows.map((row) => row.date))].sort();
+  return {
+    symbol,
+    name,
+    actualStartDate: dates[0] || "",
+    actualEndDate: dates[dates.length - 1] || "",
+    tradingDayCount: dates.length,
+    minuteRowCount: minuteRows.length,
+    rows: buildThirtyMinuteStockAverages(minuteRows)
+  };
+}
+
+function buildStockGroupAverage(stocks) {
+  const firstRows = stocks[0]?.rows || [];
+  return firstRows.map((row, index) => {
+    const slotRows = stocks.map((stock) => stock.rows[index]).filter(Boolean);
+    const changeRows = slotRows.filter((item) => Number.isFinite(item.averageChange));
+    const rateRows = slotRows.filter((item) => Number.isFinite(item.averageRate));
+    const totalCount = slotRows.reduce((sum, item) => sum + Number(item.count || 0), 0);
+    return {
+      timeRange: row.timeRange,
+      count: totalCount,
+      averageChange: changeRows.length ? changeRows.reduce((sum, item) => sum + item.averageChange, 0) / changeRows.length : null,
+      averageRate: rateRows.length ? rateRows.reduce((sum, item) => sum + item.averageRate, 0) / rateRows.length : null
+    };
+  });
+}
+
+async function handleStockIntradayAverage(req, res) {
+  try {
+    const symbolList = String(req.searchParams.get("symbols") || req.searchParams.get("symbol") || "000660")
+      .split(",")
+      .map((value) => value.replace(/\D/g, "").padStart(6, "0"))
+      .filter((value) => /^\d{6}$/.test(value));
+    const symbols = symbolList.length ? symbolList : ["000660"];
+    const nameList = String(req.searchParams.get("names") || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const name = String(req.searchParams.get("name") || req.searchParams.get("label") || nameList.join(", ") || (symbols[0] === "005930" ? "????" : "????")).trim();
+    const startDate = String(req.searchParams.get("start") || "20251001").replace(/\D/g, "") || "20251001";
+    const endDate = String(req.searchParams.get("end") || formatKstDateCompact()).replace(/\D/g, "") || formatKstDateCompact();
+    const stocks = await Promise.all(symbols.map((symbol, index) => fetchNaverStockAverage({
+      symbol,
+      name: nameList[index] || symbol,
+      startDate,
+      endDate
+    })));
+    const actualStarts = stocks.map((stock) => stock.actualStartDate).filter(Boolean).sort();
+    const actualEnds = stocks.map((stock) => stock.actualEndDate).filter(Boolean).sort();
+    sendJson(res, 200, {
+      source: "??? ?? ??",
+      symbol: symbols.join(","),
+      symbols,
+      name,
+      names: nameList.length ? nameList : stocks.map((stock) => stock.name),
+      aggregate: symbols.length > 1,
+      stocks,
+      requestedStartDate: startDate,
+      requestedEndDate: endDate,
+      actualStartDate: actualStarts[0] || "",
+      actualEndDate: actualEnds[actualEnds.length - 1] || "",
+      tradingDayCount: Math.max(...stocks.map((stock) => stock.tradingDayCount), 0),
+      minuteRowCount: stocks.reduce((sum, stock) => sum + stock.minuteRowCount, 0),
+      marketHours: "09:00~20:00",
+      notice: symbols.length > 1
+        ? "? ??? ??? ?? ?? 30? ???? ?? ?, ?? ????? ?? ??? ????."
+        : "??? ???? ?? ??? ?? ???? ???? ??????. ??/??? ??? ???? ???? ?? ??? ???? ??? ? ????.",
+      rows: symbols.length > 1 ? buildStockGroupAverage(stocks) : stocks[0].rows
+    });
+  } catch (error) {
+    sendJson(res, 502, { error: error.message });
+  }
+}
+
 async function serveStatic(req, res) {
   const pathname = decodeURIComponent(req.pathname === "/" ? "/index.html" : req.pathname);
   const normalized = path.normalize(pathname).replace(/^(\.\.[/\\])+/, "");
@@ -3216,6 +3504,7 @@ const server = http.createServer(async (request, response) => {
   if (url.pathname === "/api/calt/routes") return handleCaltRoutes(req, response);
   if (url.pathname === "/api/klimousine/search") return handleKlimousineSearch(req, response);
   if (url.pathname === "/api/klimousine/routes") return handleKlimousineRoutes(req, response);
+  if (url.pathname === "/api/stocks/intraday-average") return handleStockIntradayAverage(req, response);
   return serveStatic(req, response);
 });
 
