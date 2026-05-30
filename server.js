@@ -3373,7 +3373,7 @@ async function handleStockIntradayAverage(req, res) {
       .split(",")
       .map((value) => value.trim())
       .filter(Boolean);
-    const name = String(req.searchParams.get("name") || req.searchParams.get("label") || nameList.join(", ") || (symbols[0] === "005930" ? "????" : "????")).trim();
+    const name = String(req.searchParams.get("name") || req.searchParams.get("label") || nameList.join(", ") || (symbols[0] === "005930" ? "\uC0BC\uC131\uC804\uC790" : "\uD558\uC774\uB2C9\uC2A4")).trim();
     const startDate = String(req.searchParams.get("start") || "20251001").replace(/\D/g, "") || "20251001";
     const endDate = String(req.searchParams.get("end") || formatKstDateCompact()).replace(/\D/g, "") || formatKstDateCompact();
     const stocks = await Promise.all(symbols.map((symbol, index) => fetchNaverStockAverage({
@@ -3385,7 +3385,7 @@ async function handleStockIntradayAverage(req, res) {
     const actualStarts = stocks.map((stock) => stock.actualStartDate).filter(Boolean).sort();
     const actualEnds = stocks.map((stock) => stock.actualEndDate).filter(Boolean).sort();
     sendJson(res, 200, {
-      source: "??? ?? ??",
+      source: "\uB124\uC774\uBC84 \uAE08\uC735 \uBD84\uBD09",
       symbol: symbols.join(","),
       symbols,
       name,
@@ -3400,8 +3400,8 @@ async function handleStockIntradayAverage(req, res) {
       minuteRowCount: stocks.reduce((sum, stock) => sum + stock.minuteRowCount, 0),
       marketHours: "09:00~20:00",
       notice: symbols.length > 1
-        ? "? ??? ??? ?? ?? 30? ???? ?? ?, ?? ????? ?? ??? ????."
-        : "??? ???? ?? ??? ?? ???? ???? ??????. ??/??? ??? ???? ???? ?? ??? ???? ??? ? ????.",
+        ? "\uAC01 \uC885\uBAA9\uC758 \uB124\uC774\uBC84 \uAE08\uC735 \uBD84\uBD09 30\uBD84 \uD3C9\uADE0\uAC12\uC744 \uB9CC\uB4E0 \uB4A4, \uAC19\uC740 \uC2DC\uAC04\uB300\uB07C\uB9AC \uB2E4\uC2DC \uD3C9\uADE0\uB0B8 \uAC12\uC785\uB2C8\uB2E4."
+        : "\uB124\uC774\uBC84 \uAE08\uC735\uC5D0\uC11C \uC2E4\uC81C \uC81C\uACF5\uD55C \uBD84\uBD09 \uB370\uC774\uD130\uB97C \uAE30\uC900\uC73C\uB85C \uACC4\uC0B0\uD588\uC2B5\uB2C8\uB2E4. \uC5F0\uC7A5/\uC560\uD504\uD130 \uC2DC\uAC04\uC740 \uB370\uC774\uD130\uAC00 \uC81C\uACF5\uB418\uC9C0 \uC54A\uB294 \uAD6C\uAC04\uC774 \uBE48\uAC12\uC73C\uB85C \uD45C\uC2DC\uB420 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
       rows: symbols.length > 1 ? buildStockGroupAverage(stocks) : stocks[0].rows
     });
   } catch (error) {
