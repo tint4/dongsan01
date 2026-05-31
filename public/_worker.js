@@ -3316,12 +3316,13 @@ function buildTenMinuteTossAverages(candles) {
       return;
     }
     const previous = previousByDate.get(day);
-    if (Number.isFinite(previous) && previous > 0) {
+    const baseline = Number.isFinite(previous) && previous > 0 ? previous : row.open;
+    if (Number.isFinite(baseline) && baseline > 0) {
       const slot = slots.find((item) => minutes >= item.startMinutes && minutes < item.startMinutes + 10);
       if (slot) {
-        const change = row.close - previous;
+        const change = row.close - baseline;
         slot.changes.push(change);
-        slot.rates.push((change / previous) * 100);
+        slot.rates.push((change / baseline) * 100);
       }
     }
     previousByDate.set(day, row.close);
@@ -3418,6 +3419,152 @@ async function handleTossTenMinuteAverage(req, res) {
   }
 }
 
+
+function parseDaumCandleTime(value) {
+  const text = String(value || "").replace(" ", "T");
+  const date = new Date(text + "+09:00");
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatDaumToParam(date) {
+  const compact = formatKstDateCompact(date);
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Seoul",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).formatToParts(date).reduce((acc, part) => {
+    acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return compact.slice(0, 4) + "-" + compact.slice(4, 6) + "-" + compact.slice(6, 8) + " " + parts.hour + ":" + parts.minute + ":" + parts.second;
+}
+
+function normalizeDaumCandles(rows) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((row) => {
+      const date = parseDaumCandleTime(row.candleTime || row.date);
+      const close = Number(row.tradePrice);
+      return date && Number.isFinite(close) ? {
+        stamp: row.candleTime || row.date,
+        date,
+        close,
+        open: Number(row.openingPrice),
+        high: Number(row.highPrice),
+        low: Number(row.lowPrice),
+        volume: Number(row.candleAccTradeVolume || 0)
+      } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.date - b.date);
+}
+
+async function fetchDaumTenMinuteCandles(symbol, requestedStartDate) {
+  const all = [];
+  const seen = new Set();
+  let to = "";
+  for (let page = 0; page < 4; page += 1) {
+    const url = new URL("https://finance.daum.net/api/charts/A" + symbol + "/10/minutes");
+    url.searchParams.set("limit", "5000");
+    url.searchParams.set("adjusted", "true");
+    if (to) url.searchParams.set("to", to);
+    const response = await fetch(url, {
+      headers: {
+        accept: "application/json, text/plain, */*",
+        referer: "https://finance.daum.net/quotes/A" + symbol,
+        "user-agent": USER_AGENT
+      }
+    });
+    const text = await response.text();
+    if (!response.ok) throw new Error("Daum finance chart response error " + response.status);
+    let payload;
+    try { payload = JSON.parse(text); } catch { throw new Error("Daum finance chart response parse error"); }
+    const candles = normalizeDaumCandles(payload.data);
+    if (!candles.length) break;
+    candles.forEach((row) => {
+      if (!seen.has(row.stamp)) {
+        seen.add(row.stamp);
+        all.push(row);
+      }
+    });
+    const earliest = candles[0];
+    const earliestCompact = formatKstDateCompact(earliest.date);
+    if (earliestCompact <= requestedStartDate) break;
+    const beforeEarliest = new Date(earliest.date.getTime() - 10 * 60 * 1000);
+    to = formatDaumToParam(beforeEarliest);
+  }
+  return all.sort((a, b) => a.date - b.date).filter((row) => formatKstDateCompact(row.date) >= requestedStartDate);
+}
+
+function buildTenMinuteDaumAverages(candles) {
+  const slots = [];
+  for (let minutes = 9 * 60; minutes <= 15 * 60 + 30; minutes += 10) {
+    const hour = String(Math.floor(minutes / 60)).padStart(2, "0");
+    const minute = String(minutes % 60).padStart(2, "0");
+    const end = minutes + 10;
+    const endHour = String(Math.floor(end / 60)).padStart(2, "0");
+    const endMinute = String(end % 60).padStart(2, "0");
+    slots.push({ startMinutes: minutes, label: hour + ":" + minute + "~" + endHour + ":" + endMinute, changes: [], rates: [] });
+  }
+  const previousByDate = new Map();
+  candles.forEach((row) => {
+    const kst = new Date(row.date.getTime() + 9 * 60 * 60 * 1000);
+    const day = kst.toISOString().slice(0, 10);
+    const minutes = kst.getUTCHours() * 60 + kst.getUTCMinutes();
+    const previous = previousByDate.get(day);
+    const baseline = Number.isFinite(previous) && previous > 0 ? previous : row.open;
+    if (Number.isFinite(baseline) && baseline > 0) {
+      const slot = slots.find((item) => minutes >= item.startMinutes && minutes < item.startMinutes + 10);
+      if (slot) {
+        const change = row.close - baseline;
+        slot.changes.push(change);
+        slot.rates.push((change / baseline) * 100);
+      }
+    }
+    previousByDate.set(day, row.close);
+  });
+  return slots.map((slot) => {
+    const count = slot.changes.length;
+    return {
+      timeRange: slot.label,
+      count,
+      averageChange: count ? slot.changes.reduce((sum, value) => sum + value, 0) / count : null,
+      averageRate: count ? slot.rates.reduce((sum, value) => sum + value, 0) / count : null
+    };
+  });
+}
+
+async function handleDaumTenMinuteAverage(req, res) {
+  try {
+    const symbol = String(req.searchParams.get("symbol") || "000660").replace(/\D/g, "").padStart(6, "0");
+    const name = String(req.searchParams.get("name") || (symbol === "005930" ? "\uC0BC\uC131\uC804\uC790" : "\uD558\uC774\uB2C9\uC2A4")).trim();
+    const end = new Date();
+    const start = new Date(end);
+    start.setFullYear(start.getFullYear() - 1);
+    const requestedStartDate = formatKstDateCompact(start);
+    const requestedEndDate = formatKstDateCompact(end);
+    const candles = await fetchDaumTenMinuteCandles(symbol, requestedStartDate);
+    const dates = candles.map((row) => formatKstDateCompact(row.date)).sort();
+    return sendJson(res, 200, {
+      source: "\uB2E4\uC74C\uAE08\uC735",
+      sourceUrl: "https://finance.daum.net/quotes/A" + symbol,
+      symbol,
+      name,
+      requestedStartDate,
+      requestedEndDate,
+      actualStartDate: dates[0] || "",
+      actualEndDate: dates[dates.length - 1] || "",
+      candleCount: candles.length,
+      marketHours: "09:00~15:30",
+      notice: "\uB2E4\uC74C\uAE08\uC735 10\uBD84\uBD09 \uC790\uB8CC\uB97C \uC870\uD68C\uC77C\uBD80\uD130 1\uB144 \uC804\uAE4C\uC9C0 \uBD84\uC11D\uD588\uC2B5\uB2C8\uB2E4.",
+      rows: buildTenMinuteDaumAverages(candles)
+    });
+  } catch (error) {
+    return sendJson(res, 502, { error: error.message });
+  }
+}
+
 async function runApi(handler, req, request) {
   let status = 200;
   let headers = { "content-type": "application/json; charset=utf-8" };
@@ -3481,6 +3628,7 @@ export default {
     if (url.pathname === "/api/klimousine/routes") return runApi(handleKlimousineRoutes, req);
     if (url.pathname === "/api/stocks/intraday-average") return runApi(handleStockIntradayAverageWorker, req);
     if (url.pathname === "/api/stocks/toss-ten-minute-average") return runApi(handleTossTenMinuteAverage, req);
+    if (url.pathname === "/api/stocks/daum-ten-minute-average") return runApi(handleDaumTenMinuteAverage, req);
     return env.ASSETS.fetch(request);
   }
 };
