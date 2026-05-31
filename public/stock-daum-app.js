@@ -28,6 +28,20 @@ async function apiGet(path) {
 }
 
 function renderDaumStock(data) {
+  const summary = data.rows.reduce((acc, row) => {
+    if (row.count > 0 && row.averageChange !== null && row.averageChange !== undefined) {
+      acc.count += Number(row.count || 0);
+      acc.totalChange += Number(row.totalChange || 0);
+    }
+    return acc;
+  }, { count: 0, totalChange: 0 });
+  const summaryAverageChange = summary.count ? summary.totalChange / summary.count : null;
+  const summaryBase = data.rows.reduce((sum, row) => {
+    if (!row.count || row.averageRate === null || row.averageRate === undefined || row.averageChange === null || row.averageChange === undefined) return sum;
+    const rate = Number(row.averageRate);
+    return rate ? sum + (Number(row.averageChange) / (rate / 100)) * Number(row.count) : sum;
+  }, 0);
+  const summaryAverageRate = summaryBase ? (summary.totalChange / summaryBase) * 100 : null;
   const rows = data.rows.map((row) => `
     <tr>
       <td>${row.timeRange}</td>
@@ -36,7 +50,15 @@ function renderDaumStock(data) {
       <td class="${row.averageRate > 0 ? "stock-up" : row.averageRate < 0 ? "stock-down" : ""}">${formatNumber(row.averageRate, 2)}%</td>
       <td class="${row.totalChange > 0 ? "stock-up" : row.totalChange < 0 ? "stock-down" : ""}">${formatNumber(row.totalChange)}</td>
     </tr>
-  `).join("");
+  `).join("") + `
+    <tr>
+      <th>전체 합계</th>
+      <th>${formatNumber(summary.count)}</th>
+      <th class="${summaryAverageChange > 0 ? "stock-up" : summaryAverageChange < 0 ? "stock-down" : ""}">${formatNumber(summaryAverageChange)}</th>
+      <th class="${summaryAverageRate > 0 ? "stock-up" : summaryAverageRate < 0 ? "stock-down" : ""}">${formatNumber(summaryAverageRate, 2)}%</th>
+      <th class="${summary.totalChange > 0 ? "stock-up" : summary.totalChange < 0 ? "stock-down" : ""}">${formatNumber(summary.totalChange)}</th>
+    </tr>
+  `;
 
   daumStockResult.innerHTML = `
     <p class="post-kicker">주식(다음)</p>
