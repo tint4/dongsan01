@@ -3304,7 +3304,7 @@ function buildTenMinuteTossAverages(candles) {
     const end = minutes + 10;
     const endHour = String(Math.floor(end / 60)).padStart(2, "0");
     const endMinute = String(end % 60).padStart(2, "0");
-    slots.push({ startMinutes: minutes, label: hour + ":" + minute + "~" + endHour + ":" + endMinute, changes: [], rates: [] });
+    slots.push({ startMinutes: minutes, label: hour + ":" + minute + "~" + endHour + ":" + endMinute, changes: [], bases: [] });
   }
   const previousByDate = new Map();
   candles.forEach((row) => {
@@ -3322,18 +3322,20 @@ function buildTenMinuteTossAverages(candles) {
       if (slot) {
         const change = row.close - baseline;
         slot.changes.push(change);
-        slot.rates.push((change / baseline) * 100);
+        slot.bases.push(baseline);
       }
     }
     previousByDate.set(day, row.close);
   });
   return slots.map((slot) => {
     const count = slot.changes.length;
+    const avgChange = count ? slot.changes.reduce((sum, value) => sum + value, 0) / count : null;
+    const avgBase = count ? slot.bases.reduce((sum, value) => sum + value, 0) / count : null;
     return {
       timeRange: slot.label,
       count,
-      averageChange: count ? slot.changes.reduce((sum, value) => sum + value, 0) / count : null,
-      averageRate: count ? slot.rates.reduce((sum, value) => sum + value, 0) / count : null
+      averageChange: avgChange,
+      averageRate: avgBase ? (avgChange / avgBase) * 100 : null
     };
   });
 }
@@ -3505,7 +3507,7 @@ function buildTenMinuteDaumAverages(candles) {
     const end = minutes + 10;
     const endHour = String(Math.floor(end / 60)).padStart(2, "0");
     const endMinute = String(end % 60).padStart(2, "0");
-    slots.push({ startMinutes: minutes, label: hour + ":" + minute + "~" + endHour + ":" + endMinute, changes: [], rates: [] });
+    slots.push({ startMinutes: minutes, label: hour + ":" + minute + "~" + endHour + ":" + endMinute, changes: [], bases: [] });
   }
   const previousByDate = new Map();
   candles.forEach((row) => {
@@ -3519,18 +3521,20 @@ function buildTenMinuteDaumAverages(candles) {
       if (slot) {
         const change = row.close - baseline;
         slot.changes.push(change);
-        slot.rates.push((change / baseline) * 100);
+        slot.bases.push(baseline);
       }
     }
     previousByDate.set(day, row.close);
   });
   return slots.map((slot) => {
     const count = slot.changes.length;
+    const avgChange = count ? slot.changes.reduce((sum, value) => sum + value, 0) / count : null;
+    const avgBase = count ? slot.bases.reduce((sum, value) => sum + value, 0) / count : null;
     return {
       timeRange: slot.label,
       count,
-      averageChange: count ? slot.changes.reduce((sum, value) => sum + value, 0) / count : null,
-      averageRate: count ? slot.rates.reduce((sum, value) => sum + value, 0) / count : null
+      averageChange: avgChange,
+      averageRate: avgBase ? (avgChange / avgBase) * 100 : null
     };
   });
 }
