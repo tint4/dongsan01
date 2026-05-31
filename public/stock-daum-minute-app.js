@@ -1,0 +1,123 @@
+const daumStockTitle = document.querySelector("#daumStockTitle");
+const daumStockStatus = document.querySelector("#daumStockStatus");
+const daumStockResult = document.querySelector("#daumStockResult");
+
+const daumParams = new URLSearchParams(window.location.search);
+const daumSymbol = (daumParams.get("symbol") || "000660").replace(/\D/g, "").padStart(6, "0");
+const daumName = daumParams.get("name") || (daumSymbol === "005930" ? "삼성전자" : "하이닉스");
+
+function formatNumber(value, digits = 0) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
+  return Number(value).toLocaleString("ko-KR", {
+    maximumFractionDigits: digits,
+    minimumFractionDigits: digits
+  });
+}
+
+function formatDate(value) {
+  const text = String(value || "");
+  if (text.length !== 8) return "-";
+  return `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}`;
+}
+
+async function apiGet(path) {
+  const response = await fetch(path);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "자료 조회 중 오류가 발생했습니다.");
+  return data;
+}
+
+function renderDaumStock(data) {
+  const summary = data.rows.reduce((acc, row) => {
+    if (row.count > 0 && row.averageChange !== null && row.averageChange !== undefined) {
+      acc.count += Number(row.count || 0);
+      acc.totalChange += Number(row.totalChange || 0);
+    }
+    return acc;
+  }, { count: 0, totalChange: 0 });
+  const summaryAverageChange = summary.count ? summary.totalChange / summary.count : null;
+  const summaryBase = data.rows.reduce((sum, row) => {
+    if (!row.count || row.averageRate === null || row.averageRate === undefined || row.averageChange === null || row.averageChange === undefined) return sum;
+    const rate = Number(row.averageRate);
+    return rate ? sum + (Number(row.averageChange) / (rate / 100)) * Number(row.count) : sum;
+  }, 0);
+  const summaryAverageRate = summaryBase ? (summary.totalChange / summaryBase) * 100 : null;
+  const rows = data.rows.map((row) => `
+    <tr>
+      <td>${row.timeRange}</td>
+      <td>${formatNumber(row.count)}</td>
+      <td class="${row.averageChange > 0 ? "stock-up" : row.averageChange < 0 ? "stock-down" : ""}">${formatNumber(row.averageChange)}</td>
+      <td class="${row.averageRate > 0 ? "stock-up" : row.averageRate < 0 ? "stock-down" : ""}">${formatNumber(row.averageRate, 2)}%</td>
+      <td class="${row.totalChange > 0 ? "stock-up" : row.totalChange < 0 ? "stock-down" : ""}">${formatNumber(row.totalChange)}</td>
+    </tr>
+  `).join("") + `
+    <tr>
+      <th>전체 합계</th>
+      <th>${formatNumber(summary.count)}</th>
+      <th class="${summaryAverageChange > 0 ? "stock-up" : summaryAverageChange < 0 ? "stock-down" : ""}">${formatNumber(summaryAverageChange)}</th>
+      <th class="${summaryAverageRate > 0 ? "stock-up" : summaryAverageRate < 0 ? "stock-down" : ""}">${formatNumber(summaryAverageRate, 2)}%</th>
+      <th class="${summary.totalChange > 0 ? "stock-up" : summary.totalChange < 0 ? "stock-down" : ""}">${formatNumber(summary.totalChange)}</th>
+    </tr>
+  `;
+
+  daumStockResult.innerHTML = `
+    <p class="post-kicker">주식(다음)분봉</p>
+    <h2 class="post-title">${data.name} ${data.unitMinutes}분 평균 등락현황</h2>
+    <p class="post-meta">조회 범위: ${formatDate(data.requestedStartDate)} ~ ${formatDate(data.requestedEndDate)}</p>
+    <div class="table-wrap">
+      <table class="route-info-table">
+        <tbody>
+          <tr>
+            <th>종목코드</th>
+            <td>${data.symbol}</td>
+            <th>자료출처</th>
+            <td><a href="${data.sourceUrl}" target="_blank" rel="noopener">${data.source}</a></td>
+          </tr>
+          <tr>
+            <th>실제 자료 범위</th>
+            <td>${formatDate(data.actualStartDate)} ~ ${formatDate(data.actualEndDate)}</td>
+            <th>${data.unitMinutes}분봉 수</th>
+            <td>${formatNumber(data.candleCount)}개</td>
+          </tr>
+          <tr>
+            <th>계산 기준</th>
+            <td>${data.unitMinutes}분 단위</td>
+            <th>시장 시간</th>
+            <td>${data.marketHours}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="stock-notice">${data.notice}</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>시간대</th>
+            <th>계산건수</th>
+            <th>평균 등락폭</th>
+            <th>평균 등락률</th>
+            <th>전체 등락폭</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function loadDaumStockAverage() {
+  daumStockTitle.textContent = `${daumName} 주식(다음)분봉 평균`;
+  try {
+    daumStockStatus.textContent = `${daumName} 다음금융 4개월 5분봉 자료를 불러오고 있습니다.`;
+    const data = await apiGet(`/api/stocks/daum-minute-average?symbol=${encodeURIComponent(daumSymbol)}&name=${encodeURIComponent(daumName)}`);
+    renderDaumStock(data);
+    daumStockStatus.textContent = `${data.candleCount}개 ${data.unitMinutes}분봉 기준으로 평균을 만들었습니다.`;
+  } catch (error) {
+    daumStockResult.innerHTML = `<p class="empty">${error.message}</p>`;
+    daumStockStatus.textContent = error.message;
+    daumStockStatus.style.color = "#c2410c";
+  }
+}
+
+loadDaumStockAverage();

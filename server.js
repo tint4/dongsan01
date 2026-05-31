@@ -3615,12 +3615,12 @@ function normalizeDaumCandles(rows) {
     .sort((a, b) => a.date - b.date);
 }
 
-async function fetchDaumTenMinuteCandles(symbol, requestedStartDate) {
+async function fetchDaumTenMinuteCandles(symbol, requestedStartDate, unit = 10) {
   const all = [];
   const seen = new Set();
   let to = "";
   for (let page = 0; page < 4; page += 1) {
-    const url = new URL("https://finance.daum.net/api/charts/A" + symbol + "/10/minutes");
+    const url = new URL("https://finance.daum.net/api/charts/A" + symbol + "/" + unit + "/minutes");
     url.searchParams.set("limit", "5000");
     url.searchParams.set("adjusted", "true");
     if (to) url.searchParams.set("to", to);
@@ -3646,21 +3646,22 @@ async function fetchDaumTenMinuteCandles(symbol, requestedStartDate) {
     const earliest = candles[0];
     const earliestCompact = formatKstDateCompact(earliest.date);
     if (earliestCompact <= requestedStartDate) break;
-    const beforeEarliest = new Date(earliest.date.getTime() - 10 * 60 * 1000);
+    const beforeEarliest = new Date(earliest.date.getTime() - unit * 60 * 1000);
     to = formatDaumToParam(beforeEarliest);
   }
   return all.sort((a, b) => a.date - b.date).filter((row) => formatKstDateCompact(row.date) >= requestedStartDate);
 }
 
-function buildTenMinuteDaumAverages(candles) {
+function buildTenMinuteDaumAverages(candles, unit = 10) {
   const slots = [];
-  for (let minutes = 9 * 60; minutes <= 15 * 60 + 20; minutes += 10) {
+  const finalStart = 15 * 60 + 30 - unit;
+  for (let minutes = 9 * 60; minutes <= finalStart; minutes += unit) {
     const hour = String(Math.floor(minutes / 60)).padStart(2, "0");
     const minute = String(minutes % 60).padStart(2, "0");
-    const end = minutes + 10;
+    const end = minutes + unit;
     const endHour = String(Math.floor(end / 60)).padStart(2, "0");
     const endMinute = String(end % 60).padStart(2, "0");
-    const labelEnd = minutes === 15 * 60 + 20 ? "15:31" : endHour + ":" + endMinute;
+    const labelEnd = minutes === finalStart ? "15:31" : endHour + ":" + endMinute;
     slots.push({ startMinutes: minutes, label: hour + ":" + minute + "~" + labelEnd, changes: [], bases: [] });
   }
   const previousByDate = new Map();
@@ -3672,7 +3673,7 @@ function buildTenMinuteDaumAverages(candles) {
     const baseline = Number.isFinite(previous) && previous > 0 ? previous : row.open;
     if (Number.isFinite(baseline) && baseline > 0) {
       const slot = slots.find((item) => {
-        const span = item.startMinutes === 15 * 60 + 20 ? 11 : 10;
+        const span = item.startMinutes === finalStart ? unit + 1 : unit;
         return minutes >= item.startMinutes && minutes < item.startMinutes + span;
       });
       if (slot) {
@@ -3721,6 +3722,38 @@ async function handleDaumTenMinuteAverage(req, res) {
       marketHours: "09:00~15:30",
       notice: "\uB2E4\uC74C\uAE08\uC735 10\uBD84\uBD09 \uC790\uB8CC\uB97C \uC870\uD68C\uC77C\uBD80\uD130 4\uAC1C\uC6D4 \uC804\uAE4C\uC9C0 \uBD84\uC11D\uD588\uC2B5\uB2C8\uB2E4.",
       rows: buildTenMinuteDaumAverages(candles)
+    });
+  } catch (error) {
+    return sendJson(res, 502, { error: error.message });
+  }
+}
+
+async function handleDaumMinuteAverage(req, res) {
+  try {
+    const symbol = String(req.searchParams.get("symbol") || "000660").replace(/\D/g, "").padStart(6, "0");
+    const name = String(req.searchParams.get("name") || (symbol === "005930" ? "\uC0BC\uC131\uC804\uC790" : "\uD558\uC774\uB2C9\uC2A4")).trim();
+    const unit = 5;
+    const end = new Date();
+    const start = new Date(end);
+    start.setMonth(start.getMonth() - 4);
+    const requestedStartDate = formatKstDateCompact(start);
+    const requestedEndDate = formatKstDateCompact(end);
+    const candles = await fetchDaumTenMinuteCandles(symbol, requestedStartDate, unit);
+    const dates = candles.map((row) => formatKstDateCompact(row.date)).sort();
+    return sendJson(res, 200, {
+      source: "\uB2E4\uC74C\uAE08\uC735",
+      sourceUrl: "https://finance.daum.net/quotes/A" + symbol,
+      symbol,
+      name,
+      requestedStartDate,
+      requestedEndDate,
+      actualStartDate: dates[0] || "",
+      actualEndDate: dates[dates.length - 1] || "",
+      candleCount: candles.length,
+      unitMinutes: unit,
+      marketHours: "09:00~15:30",
+      notice: "\uB2E4\uC74C\uAE08\uC735 5\uBD84\uBD09 \uC790\uB8CC\uB97C \uC870\uD68C\uC77C\uBD80\uD130 4\uAC1C\uC6D4 \uC804\uAE4C\uC9C0 \uBD84\uC11D\uD588\uC2B5\uB2C8\uB2E4.",
+      rows: buildTenMinuteDaumAverages(candles, unit)
     });
   } catch (error) {
     return sendJson(res, 502, { error: error.message });
@@ -3825,6 +3858,7 @@ const server = http.createServer(async (request, response) => {
   if (url.pathname === "/api/stocks/intraday-average") return handleStockIntradayAverage(req, response);
   if (url.pathname === "/api/stocks/toss-ten-minute-average") return handleTossTenMinuteAverage(req, response);
   if (url.pathname === "/api/stocks/daum-ten-minute-average") return handleDaumTenMinuteAverage(req, response);
+  if (url.pathname === "/api/stocks/daum-minute-average") return handleDaumMinuteAverage(req, response);
   return serveStatic(req, response);
 });
 
