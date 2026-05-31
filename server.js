@@ -3487,7 +3487,8 @@ function buildTenMinuteTossAverages(candles) {
       timeRange: slot.label,
       count,
       averageChange: avgChange,
-      averageRate: avgBase ? (avgChange / avgBase) * 100 : null
+      averageRate: avgBase ? (avgChange / avgBase) * 100 : null,
+      totalChange: avgChange !== null ? avgChange * count : null
     };
   });
 }
@@ -3690,7 +3691,8 @@ function buildTenMinuteDaumAverages(candles) {
       timeRange: slot.label,
       count,
       averageChange: avgChange,
-      averageRate: avgBase ? (avgChange / avgBase) * 100 : null
+      averageRate: avgBase ? (avgChange / avgBase) * 100 : null,
+      totalChange: avgChange !== null ? avgChange * count : null
     };
   });
 }

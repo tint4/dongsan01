@@ -34,6 +34,7 @@ function renderDaumStock(data) {
       <td>${formatNumber(row.count)}</td>
       <td class="${row.averageChange > 0 ? "stock-up" : row.averageChange < 0 ? "stock-down" : ""}">${formatNumber(row.averageChange)}</td>
       <td class="${row.averageRate > 0 ? "stock-up" : row.averageRate < 0 ? "stock-down" : ""}">${formatNumber(row.averageRate, 2)}%</td>
+      <td class="${row.totalChange > 0 ? "stock-up" : row.totalChange < 0 ? "stock-down" : ""}">${formatNumber(row.totalChange)}</td>
     </tr>
   `).join("");
 
@@ -74,6 +75,7 @@ function renderDaumStock(data) {
             <th>계산건수</th>
             <th>평균 등락폭</th>
             <th>평균 등락률</th>
+            <th>전체 등락폭</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
