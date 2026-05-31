@@ -85,7 +85,7 @@ function renderDaumStock(data) {
 async function loadDaumStockAverage() {
   daumStockTitle.textContent = `${daumName} 주식(다음) 10분 평균`;
   try {
-    daumStockStatus.textContent = `${daumName} 다음금융 1년 10분봉 자료를 불러오고 있습니다.`;
+    daumStockStatus.textContent = `${daumName} 다음금융 4개월 10분봉 자료를 불러오고 있습니다.`;
     const data = await apiGet(`/api/stocks/daum-ten-minute-average?symbol=${encodeURIComponent(daumSymbol)}&name=${encodeURIComponent(daumName)}`);
     renderDaumStock(data);
     daumStockStatus.textContent = `${data.candleCount}개 10분봉 기준으로 평균을 만들었습니다.`;

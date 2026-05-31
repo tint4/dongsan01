@@ -3344,7 +3344,7 @@ async function handleTossTenMinuteAverage(req, res) {
     const name = String(req.searchParams.get("name") || (symbol === "005930" ? "\uC0BC\uC131\uC804\uC790" : "\uD558\uC774\uB2C9\uC2A4")).trim();
     const end = new Date();
     const start = new Date(end);
-    start.setFullYear(start.getFullYear() - 1);
+    start.setMonth(start.getMonth() - 4);
     const requestedStartDate = formatKstDateCompact(start);
     const requestedEndDate = formatKstDateCompact(end);
     const productCode = "A" + symbol;
@@ -3541,7 +3541,7 @@ async function handleDaumTenMinuteAverage(req, res) {
     const name = String(req.searchParams.get("name") || (symbol === "005930" ? "\uC0BC\uC131\uC804\uC790" : "\uD558\uC774\uB2C9\uC2A4")).trim();
     const end = new Date();
     const start = new Date(end);
-    start.setFullYear(start.getFullYear() - 1);
+    start.setMonth(start.getMonth() - 4);
     const requestedStartDate = formatKstDateCompact(start);
     const requestedEndDate = formatKstDateCompact(end);
     const candles = await fetchDaumTenMinuteCandles(symbol, requestedStartDate);
@@ -3557,7 +3557,7 @@ async function handleDaumTenMinuteAverage(req, res) {
       actualEndDate: dates[dates.length - 1] || "",
       candleCount: candles.length,
       marketHours: "09:00~15:30",
-      notice: "\uB2E4\uC74C\uAE08\uC735 10\uBD84\uBD09 \uC790\uB8CC\uB97C \uC870\uD68C\uC77C\uBD80\uD130 1\uB144 \uC804\uAE4C\uC9C0 \uBD84\uC11D\uD588\uC2B5\uB2C8\uB2E4.",
+      notice: "\uB2E4\uC74C\uAE08\uC735 10\uBD84\uBD09 \uC790\uB8CC\uB97C \uC870\uD68C\uC77C\uBD80\uD130 4\uAC1C\uC6D4 \uC804\uAE4C\uC9C0 \uBD84\uC11D\uD588\uC2B5\uB2C8\uB2E4.",
       rows: buildTenMinuteDaumAverages(candles)
     });
   } catch (error) {
