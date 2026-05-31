@@ -35,12 +35,34 @@ function renderLoginRequired(data) {
   tossStockResult.innerHTML = `
     <p class="post-kicker">주식(토스)</p>
     <h2 class="post-title">${tossName} 10분 평균</h2>
+    <div class="table-wrap">
+      <table class="route-info-table">
+        <tbody>
+          <tr>
+            <th>종목코드</th>
+            <td>${data.symbol || tossSymbol}</td>
+            <th>자료출처</th>
+            <td><a href="${data.sourceUrl || `https://www.tossinvest.com/stocks/A${tossSymbol}`}" target="_blank" rel="noopener">토스증권</a></td>
+          </tr>
+          <tr>
+            <th>조회 범위</th>
+            <td>${formatDate(data.requestedStartDate)} ~ ${formatDate(data.requestedEndDate)}</td>
+            <th>계산 기준</th>
+            <td>10분 단위</td>
+          </tr>
+          <tr>
+            <th>조회 상태</th>
+            <td colspan="3">토스증권 로그인이 필요한 자료입니다.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
     <p class="empty">${data.error || "토스증권에서 로그인이 필요한 응답을 보냈습니다."}</p>
     <div class="naver-post-actions">
       <a class="home-back-link" href="${data.loginUrl || `https://www.tossinvest.com/stocks/A${tossSymbol}`}" target="_blank" rel="noopener">토스증권 로그인 열기</a>
       <a class="home-back-link" href="https://www.tossinvest.com/stocks/A${tossSymbol}" target="_blank" rel="noopener">토스증권 종목 페이지 열기</a>
     </div>
-    <p class="stock-notice">로그인은 토스증권 공식 페이지에서 직접 진행합니다. 이 사이트는 토스 비밀번호나 인증정보를 저장하지 않습니다.</p>
+    <p class="stock-notice">토스증권 공식 차트 API가 로그인 필요 응답을 반환했습니다. 로그인을 직접 진행할 수 있도록 공식 토스증권 페이지를 새 창으로 연결합니다. 이 사이트는 토스 비밀번호나 인증정보를 저장하지 않습니다.</p>
   `;
 }
 
