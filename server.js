@@ -3455,7 +3455,8 @@ function buildTenMinuteTossAverages(candles) {
     const end = minutes + 10;
     const endHour = String(Math.floor(end / 60)).padStart(2, "0");
     const endMinute = String(end % 60).padStart(2, "0");
-    slots.push({ startMinutes: minutes, label: hour + ":" + minute + "~" + endHour + ":" + endMinute, changes: [], bases: [] });
+    const labelEnd = minutes === 15 * 60 + 20 ? "15:31" : endHour + ":" + endMinute;
+    slots.push({ startMinutes: minutes, label: hour + ":" + minute + "~" + labelEnd, changes: [], bases: [] });
   }
   const previousByDate = new Map();
   candles.forEach((row) => {
@@ -3652,13 +3653,14 @@ async function fetchDaumTenMinuteCandles(symbol, requestedStartDate) {
 
 function buildTenMinuteDaumAverages(candles) {
   const slots = [];
-  for (let minutes = 9 * 60; minutes <= 15 * 60 + 30; minutes += 10) {
+  for (let minutes = 9 * 60; minutes <= 15 * 60 + 20; minutes += 10) {
     const hour = String(Math.floor(minutes / 60)).padStart(2, "0");
     const minute = String(minutes % 60).padStart(2, "0");
     const end = minutes + 10;
     const endHour = String(Math.floor(end / 60)).padStart(2, "0");
     const endMinute = String(end % 60).padStart(2, "0");
-    slots.push({ startMinutes: minutes, label: hour + ":" + minute + "~" + endHour + ":" + endMinute, changes: [], bases: [] });
+    const labelEnd = minutes === 15 * 60 + 20 ? "15:31" : endHour + ":" + endMinute;
+    slots.push({ startMinutes: minutes, label: hour + ":" + minute + "~" + labelEnd, changes: [], bases: [] });
   }
   const previousByDate = new Map();
   candles.forEach((row) => {
@@ -3668,7 +3670,10 @@ function buildTenMinuteDaumAverages(candles) {
     const previous = previousByDate.get(day);
     const baseline = Number.isFinite(previous) && previous > 0 ? previous : row.open;
     if (Number.isFinite(baseline) && baseline > 0) {
-      const slot = slots.find((item) => minutes >= item.startMinutes && minutes < item.startMinutes + 10);
+      const slot = slots.find((item) => {
+        const span = item.startMinutes === 15 * 60 + 20 ? 11 : 10;
+        return minutes >= item.startMinutes && minutes < item.startMinutes + span;
+      });
       if (slot) {
         const change = row.close - baseline;
         slot.changes.push(change);
