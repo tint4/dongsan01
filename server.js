@@ -3409,6 +3409,166 @@ async function handleStockIntradayAverage(req, res) {
   }
 }
 
+
+function formatKstDateDashed(date = new Date()) {
+  const compact = formatKstDateCompact(date);
+  return compact.slice(0, 4) + "-" + compact.slice(4, 6) + "-" + compact.slice(6, 8);
+}
+
+function compactFromDashed(value) {
+  return String(value || "").replace(/\D/g, "").slice(0, 8);
+}
+
+function normalizeTossCandles(payload) {
+  const found = [];
+  const seen = new Set();
+  function visit(value) {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    const timeValue = value.time || value.dateTime || value.datetime || value.timestamp || value.baseDateTime || value.localDateTime || value.at || value.x;
+    const closeValue = value.close || value.closePrice || value.price || value.tradePrice || value.currentPrice || value.y;
+    if (timeValue !== undefined && closeValue !== undefined) {
+      const close = Number(String(closeValue).replace(/,/g, ""));
+      const date = new Date(typeof timeValue === "number" ? timeValue : String(timeValue));
+      if (Number.isFinite(close) && !Number.isNaN(date.getTime())) {
+        const stamp = date.toISOString();
+        if (!seen.has(stamp)) {
+          seen.add(stamp);
+          found.push({ stamp, date, close });
+        }
+      }
+    }
+    Object.values(value).forEach(visit);
+  }
+  visit(payload);
+  return found.sort((a, b) => a.date - b.date);
+}
+
+function buildTenMinuteTossAverages(candles) {
+  const slots = [];
+  for (let minutes = 9 * 60; minutes < 20 * 60; minutes += 10) {
+    const hour = String(Math.floor(minutes / 60)).padStart(2, "0");
+    const minute = String(minutes % 60).padStart(2, "0");
+    const end = minutes + 10;
+    const endHour = String(Math.floor(end / 60)).padStart(2, "0");
+    const endMinute = String(end % 60).padStart(2, "0");
+    slots.push({ startMinutes: minutes, label: hour + ":" + minute + "~" + endHour + ":" + endMinute, changes: [], rates: [] });
+  }
+  const previousByDate = new Map();
+  candles.forEach((row) => {
+    const kst = new Date(row.date.getTime() + 9 * 60 * 60 * 1000);
+    const day = kst.toISOString().slice(0, 10);
+    const minutes = kst.getUTCHours() * 60 + kst.getUTCMinutes();
+    if (minutes < 9 * 60 || minutes >= 20 * 60) {
+      previousByDate.set(day, row.close);
+      return;
+    }
+    const previous = previousByDate.get(day);
+    if (Number.isFinite(previous) && previous > 0) {
+      const slot = slots.find((item) => minutes >= item.startMinutes && minutes < item.startMinutes + 10);
+      if (slot) {
+        const change = row.close - previous;
+        slot.changes.push(change);
+        slot.rates.push((change / previous) * 100);
+      }
+    }
+    previousByDate.set(day, row.close);
+  });
+  return slots.map((slot) => {
+    const count = slot.changes.length;
+    return {
+      timeRange: slot.label,
+      count,
+      averageChange: count ? slot.changes.reduce((sum, value) => sum + value, 0) / count : null,
+      averageRate: count ? slot.rates.reduce((sum, value) => sum + value, 0) / count : null
+    };
+  });
+}
+
+async function handleTossTenMinuteAverage(req, res) {
+  try {
+    const symbol = String(req.searchParams.get("symbol") || "000660").replace(/\D/g, "").padStart(6, "0");
+    const name = String(req.searchParams.get("name") || (symbol === "005930" ? "\uC0BC\uC131\uC804\uC790" : "\uD558\uC774\uB2C9\uC2A4")).trim();
+    const end = new Date();
+    const start = new Date(end);
+    start.setFullYear(start.getFullYear() - 1);
+    const requestedStartDate = formatKstDateCompact(start);
+    const requestedEndDate = formatKstDateCompact(end);
+    const productCode = "A" + symbol;
+    const sourceUrl = "https://www.tossinvest.com/stocks/" + productCode;
+    const urls = [
+      "https://wts-api.tossinvest.com/api/v1/c-chart/stock/" + productCode + "/1Y?from=" + formatKstDateDashed(start) + "&to=" + formatKstDateDashed(end) + "&interval=10m",
+      "https://wts-api.tossinvest.com/api/v1/c-chart/KR/" + productCode + "/1Y?from=" + formatKstDateDashed(start) + "&to=" + formatKstDateDashed(end) + "&interval=10m",
+      "https://wts-api.tossinvest.com/api/v1/r-chart/stock/" + productCode + "/1Y?from=" + formatKstDateDashed(start) + "&to=" + formatKstDateDashed(end) + "&interval=10m"
+    ];
+    let lastStatus = 0;
+    let lastText = "";
+    for (const url of urls) {
+      const response = await fetch(url, {
+        headers: {
+          accept: "application/json, text/plain, */*",
+          origin: "https://www.tossinvest.com",
+          referer: sourceUrl,
+          "user-agent": USER_AGENT
+        }
+      });
+      lastStatus = response.status;
+      lastText = await response.text();
+      if (response.status === 401 || response.status === 403) {
+        return sendJson(res, response.status, {
+          loginRequired: true,
+          error: "\uD1A0\uC2A4\uC99D\uAD8C \uCC28\uD2B8 \uC790\uB8CC \uC870\uD68C\uC5D0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.",
+          loginUrl: sourceUrl,
+          source: "\uD1A0\uC2A4\uC99D\uAD8C",
+          sourceUrl,
+          symbol,
+          name,
+          requestedStartDate,
+          requestedEndDate
+        });
+      }
+      if (!response.ok) continue;
+      let payload;
+      try { payload = JSON.parse(lastText); } catch { continue; }
+      const candles = normalizeTossCandles(payload).filter((row) => {
+        const compact = compactFromDashed(row.date.toISOString().slice(0, 10));
+        return compact >= requestedStartDate && compact <= requestedEndDate;
+      });
+      if (!candles.length) continue;
+      const dates = candles.map((row) => compactFromDashed(row.date.toISOString().slice(0, 10))).sort();
+      return sendJson(res, 200, {
+        source: "\uD1A0\uC2A4\uC99D\uAD8C",
+        sourceUrl,
+        symbol,
+        name,
+        requestedStartDate,
+        requestedEndDate,
+        actualStartDate: dates[0] || "",
+        actualEndDate: dates[dates.length - 1] || "",
+        candleCount: candles.length,
+        marketHours: "09:00~20:00",
+        notice: "\uD1A0\uC2A4\uC99D\uAD8C \uCC28\uD2B8 \uC790\uB8CC\uB97C 10\uBD84 \uB2E8\uC704\uB85C \uBD84\uC11D\uD588\uC2B5\uB2C8\uB2E4.",
+        rows: buildTenMinuteTossAverages(candles)
+      });
+    }
+    return sendJson(res, 502, {
+      error: "\uD1A0\uC2A4\uC99D\uAD8C \uCC28\uD2B8 \uC790\uB8CC\uB97C \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC751\uB2F5 \uC0C1\uD0DC: " + lastStatus,
+      detail: lastText.slice(0, 200),
+      source: "\uD1A0\uC2A4\uC99D\uAD8C",
+      sourceUrl,
+      symbol,
+      name,
+      requestedStartDate,
+      requestedEndDate
+    });
+  } catch (error) {
+    return sendJson(res, 502, { error: error.message });
+  }
+}
+
 async function serveStatic(req, res) {
   const pathname = decodeURIComponent(req.pathname === "/" ? "/index.html" : req.pathname);
   const normalized = path.normalize(pathname).replace(/^(\.\.[/\\])+/, "");
@@ -3505,6 +3665,7 @@ const server = http.createServer(async (request, response) => {
   if (url.pathname === "/api/klimousine/search") return handleKlimousineSearch(req, response);
   if (url.pathname === "/api/klimousine/routes") return handleKlimousineRoutes(req, response);
   if (url.pathname === "/api/stocks/intraday-average") return handleStockIntradayAverage(req, response);
+  if (url.pathname === "/api/stocks/toss-ten-minute-average") return handleTossTenMinuteAverage(req, response);
   return serveStatic(req, response);
 });
 
