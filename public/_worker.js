@@ -3609,6 +3609,112 @@ async function handleDaumMinuteAverage(req, res) {
   }
 }
 
+function summarizePatternEvents(events) {
+  const count = events.length || 1;
+  const avgRate = events.reduce((sum, event) => sum + event.rate, 0) / count;
+  const avgBeforeRate = events.reduce((sum, event) => sum + event.beforeRate, 0) / count;
+  const avgBeforeVolumeRatio = events.reduce((sum, event) => sum + event.beforeVolumeRatio, 0) / count;
+  const beforeUpCount = events.filter((event) => event.beforeRate > 0).length;
+  const beforeDownCount = events.filter((event) => event.beforeRate < 0).length;
+  return {
+    count: events.length,
+    avgRate,
+    avgBeforeRate,
+    avgBeforeVolumeRatio,
+    beforeUpRatio: events.length ? beforeUpCount / events.length : 0,
+    beforeDownRatio: events.length ? beforeDownCount / events.length : 0
+  };
+}
+
+function analyzeDaumMinutePatterns(candles) {
+  const byDayPrevious = new Map();
+  const enriched = candles.map((row, index) => {
+    const kst = new Date(row.date.getTime() + 9 * 60 * 60 * 1000);
+    const day = kst.toISOString().slice(0, 10);
+    const previous = byDayPrevious.get(day);
+    const baseline = Number.isFinite(previous) && previous > 0 ? previous : row.open;
+    const change = Number.isFinite(baseline) && baseline > 0 ? row.close - baseline : 0;
+    const rate = Number.isFinite(baseline) && baseline > 0 ? (change / baseline) * 100 : 0;
+    byDayPrevious.set(day, row.close);
+    return { ...row, index, day, change, rate };
+  });
+
+  function buildEvent(row) {
+    const before = enriched
+      .slice(Math.max(0, row.index - 3), row.index)
+      .filter((item) => item.day === row.day);
+    const volumeBase = enriched
+      .slice(Math.max(0, row.index - 20), row.index)
+      .filter((item) => item.day === row.day && Number.isFinite(item.volume) && item.volume > 0);
+    const beforeChange = before.reduce((sum, item) => sum + item.change, 0);
+    const beforeBase = before[0]?.open || before[0]?.close || 0;
+    const beforeRate = beforeBase ? (beforeChange / beforeBase) * 100 : 0;
+    const beforeVolume = before.length ? before.reduce((sum, item) => sum + Number(item.volume || 0), 0) / before.length : 0;
+    const normalVolume = volumeBase.length ? volumeBase.reduce((sum, item) => sum + Number(item.volume || 0), 0) / volumeBase.length : beforeVolume;
+    return {
+      candleTime: row.stamp,
+      price: row.close,
+      change: row.change,
+      rate: row.rate,
+      volume: row.volume,
+      beforeChange,
+      beforeRate,
+      beforeVolumeRatio: normalVolume ? beforeVolume / normalVolume : 0,
+      beforeDirection: beforeRate > 0 ? "상승" : beforeRate < 0 ? "하락" : "보합"
+    };
+  }
+
+  const comparable = enriched.filter((row) => row.index > 2 && Number.isFinite(row.rate));
+  const surgeEvents = comparable
+    .filter((row) => row.rate > 0)
+    .sort((a, b) => b.rate - a.rate)
+    .slice(0, 12)
+    .map(buildEvent);
+  const plungeEvents = comparable
+    .filter((row) => row.rate < 0)
+    .sort((a, b) => a.rate - b.rate)
+    .slice(0, 12)
+    .map(buildEvent);
+
+  return {
+    surge: summarizePatternEvents(surgeEvents),
+    plunge: summarizePatternEvents(plungeEvents),
+    surgeEvents,
+    plungeEvents
+  };
+}
+
+async function handleDaumMinutePattern(req, res) {
+  try {
+    const symbol = String(req.searchParams.get("symbol") || "000660").replace(/\D/g, "").padStart(6, "0");
+    const name = String(req.searchParams.get("name") || (symbol === "005930" ? "\uC0BC\uC131\uC804\uC790" : "\uD558\uC774\uB2C9\uC2A4")).trim();
+    const unit = 5;
+    const end = new Date();
+    const start = new Date(end);
+    start.setMonth(start.getMonth() - 3);
+    const requestedStartDate = formatKstDateCompact(start);
+    const requestedEndDate = formatKstDateCompact(end);
+    const candles = await fetchDaumTenMinuteCandles(symbol, requestedStartDate, unit);
+    const dates = candles.map((row) => formatKstDateCompact(row.date)).sort();
+    return sendJson(res, 200, {
+      source: "\uB2E4\uC74C\uAE08\uC735",
+      sourceUrl: "https://finance.daum.net/quotes/A" + symbol,
+      symbol,
+      name,
+      requestedStartDate,
+      requestedEndDate,
+      actualStartDate: dates[0] || "",
+      actualEndDate: dates[dates.length - 1] || "",
+      candleCount: candles.length,
+      unitMinutes: unit,
+      analysis: analyzeDaumMinutePatterns(candles),
+      notice: "\uB2E4\uC74C\uAE08\uC735 5\uBD84\uBD09 3\uAC1C\uC6D4\uCE58\uC5D0\uC11C \uAE09\uB4F1/\uAE09\uB77D \uC0C1\uC704 \uAD6C\uAC04\uACFC \uC9C1\uC804 15\uBD84 \uD328\uD134\uC744 \uBD84\uC11D\uD588\uC2B5\uB2C8\uB2E4."
+    });
+  } catch (error) {
+    return sendJson(res, 502, { error: error.message });
+  }
+}
+
 async function runApi(handler, req, request) {
   let status = 200;
   let headers = { "content-type": "application/json; charset=utf-8" };
@@ -3674,6 +3780,7 @@ export default {
     if (url.pathname === "/api/stocks/toss-ten-minute-average") return runApi(handleTossTenMinuteAverage, req);
     if (url.pathname === "/api/stocks/daum-ten-minute-average") return runApi(handleDaumTenMinuteAverage, req);
     if (url.pathname === "/api/stocks/daum-minute-average") return runApi(handleDaumMinuteAverage, req);
+    if (url.pathname === "/api/stocks/daum-minute-pattern") return runApi(handleDaumMinutePattern, req);
     return env.ASSETS.fetch(request);
   }
 };
