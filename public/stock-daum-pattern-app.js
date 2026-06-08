@@ -36,6 +36,7 @@ async function apiGet(path) {
 }
 
 function renderDailyThreshold(data) {
+  const unit = data.unitMinutes || 10;
   const threshold = data.analysis.threshold || {
     dailyRows: [],
     totalRiseCount: 0,
@@ -56,7 +57,7 @@ function renderDailyThreshold(data) {
 
   patternResult.innerHTML = `
     <p class="post-kicker">주식(다음)분봉 패턴</p>
-    <h2 class="post-title">${data.name} 5분봉 급등/급락 횟수</h2>
+    <h2 class="post-title">${data.name} ${unit}분봉 급등/급락 횟수</h2>
     <p class="post-meta">조회 범위: ${formatDate(data.requestedStartDate)} ~ ${formatDate(data.requestedEndDate)}</p>
     <div class="table-wrap">
       <table class="route-info-table">
@@ -70,14 +71,14 @@ function renderDailyThreshold(data) {
           <tr>
             <th>실제 자료 범위</th>
             <td>${formatDate(data.actualStartDate)} ~ ${formatDate(data.actualEndDate)}</td>
-            <th>분봉 수</th>
+            <th>${unit}분봉 수</th>
             <td>${formatNumber(data.candleCount)}개</td>
           </tr>
           <tr>
             <th>상승 기준</th>
-            <td>직전 5분 대비 ${formatNumber(threshold.riseRate)}% 이상</td>
+            <td>직전 ${unit}분 대비 ${formatNumber(threshold.riseRate)}% 이상</td>
             <th>하락 기준</th>
-            <td>직전 5분 대비 ${formatNumber(threshold.fallRate)}% 이하</td>
+            <td>직전 ${unit}분 대비 ${formatNumber(threshold.fallRate)}% 이하</td>
           </tr>
           <tr>
             <th>상승 총횟수</th>
@@ -88,13 +89,13 @@ function renderDailyThreshold(data) {
         </tbody>
       </table>
     </div>
-    <p class="stock-notice">각 5분봉의 종가를 바로 직전 5분봉 종가와 비교해서 계산했습니다. 장 시작 첫 5분봉은 해당 봉의 시가 대비 종가 기준입니다.</p>
+    <p class="stock-notice">각 ${unit}분봉의 종가를 바로 직전 ${unit}분봉 종가와 비교해서 계산했습니다. 장 시작 첫 ${unit}분봉은 해당 봉의 시가 대비 종가 기준입니다.</p>
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
             <th>일자</th>
-            <th>5분봉 수</th>
+            <th>${unit}분봉 수</th>
             <th>${formatNumber(threshold.riseRate)}% 이상 상승 횟수</th>
             <th>상승 발생 시간</th>
             <th>${formatNumber(threshold.fallRate)}% 이하 하락 횟수</th>
@@ -110,11 +111,11 @@ function renderDailyThreshold(data) {
 async function loadPattern() {
   patternTitle.textContent = `${patternName} 주식(다음)분봉 패턴`;
   try {
-    patternStatus.textContent = `${patternName} 최근 3개월 5분봉 급등/급락 횟수를 계산하고 있습니다.`;
+    patternStatus.textContent = `${patternName} 최근 3개월 10분봉 급등/급락 횟수를 계산하고 있습니다.`;
     const data = await apiGet(`/api/stocks/daum-minute-pattern?symbol=${encodeURIComponent(patternSymbol)}&name=${encodeURIComponent(patternName)}`);
     renderDailyThreshold(data);
     const threshold = data.analysis.threshold;
-    patternStatus.textContent = `${formatNumber(threshold.riseRate)}% 이상 상승 ${threshold.totalRiseCount}회, ${formatNumber(threshold.fallRate)}% 이하 하락 ${threshold.totalFallCount}회를 일자별로 정리했습니다.`;
+    patternStatus.textContent = `${data.unitMinutes}분봉 기준 ${formatNumber(threshold.riseRate)}% 이상 상승 ${threshold.totalRiseCount}회, ${formatNumber(threshold.fallRate)}% 이하 하락 ${threshold.totalFallCount}회를 일자별로 정리했습니다.`;
   } catch (error) {
     patternResult.innerHTML = `<p class="empty">${error.message}</p>`;
     patternStatus.textContent = error.message;

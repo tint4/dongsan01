@@ -3721,7 +3721,7 @@ async function handleDaumMinutePattern(req, res) {
   try {
     const symbol = String(req.searchParams.get("symbol") || "000660").replace(/\D/g, "").padStart(6, "0");
     const name = String(req.searchParams.get("name") || (symbol === "005930" ? "\uC0BC\uC131\uC804\uC790" : "\uD558\uC774\uB2C9\uC2A4")).trim();
-    const unit = 5;
+    const unit = 10;
     const end = new Date();
     const start = new Date(end);
     start.setMonth(start.getMonth() - 3);
