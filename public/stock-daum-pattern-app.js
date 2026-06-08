@@ -20,10 +20,12 @@ function formatDate(value) {
   return `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}`;
 }
 
-function formatDateTime(value) {
-  const text = String(value || "");
-  if (text.length < 12) return "-";
-  return `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)} ${text.slice(8, 10)}:${text.slice(10, 12)}`;
+function formatTimes(times) {
+  if (!Array.isArray(times) || !times.length) return "-";
+  return times.map((value) => {
+    const text = String(value || "");
+    return text.length >= 12 ? `${text.slice(8, 10)}:${text.slice(10, 12)}` : text;
+  }).join(", ");
 }
 
 async function apiGet(path) {
@@ -33,67 +35,22 @@ async function apiGet(path) {
   return data;
 }
 
-function classBySign(value) {
-  return Number(value) > 0 ? "stock-up" : Number(value) < 0 ? "stock-down" : "";
-}
-
-function renderSummaryText(data) {
-  const surge = data.analysis.surge;
-  const plunge = data.analysis.plunge;
-  const surgeDirection = surge.beforeUpRatio >= 0.5 ? "상승 흐름" : "하락 또는 보합 흐름";
-  const plungeDirection = plunge.beforeDownRatio >= 0.5 ? "하락 흐름" : "상승 또는 보합 흐름";
-  const surgeVolume = surge.avgBeforeVolumeRatio >= 1.2 ? "평소보다 거래량이 먼저 늘어나는 편" : "거래량 선행 신호는 강하지 않은 편";
-  const plungeVolume = plunge.avgBeforeVolumeRatio >= 1.2 ? "급락 전 거래량이 먼저 커지는 편" : "급락 전 거래량 변화는 제한적인 편";
-
-  return `
-    <p>
-      최근 3개월 5분봉에서 급등 상위 구간 직전 15분은 평균 ${formatNumber(surge.avgBeforeRate, 2)}%의 ${surgeDirection}이었고,
-      직전 거래량은 평소 대비 ${formatNumber(surge.avgBeforeVolumeRatio, 2)}배 수준이었습니다. ${surgeVolume}입니다.
-    </p>
-    <p>
-      급락 상위 구간 직전 15분은 평균 ${formatNumber(plunge.avgBeforeRate, 2)}%의 ${plungeDirection}이었고,
-      직전 거래량은 평소 대비 ${formatNumber(plunge.avgBeforeVolumeRatio, 2)}배 수준이었습니다. ${plungeVolume}입니다.
-    </p>
-    <p class="stock-notice">이 내용은 과거 분봉의 통계 요약이며 매수 또는 매도 추천이 아닙니다.</p>
-  `;
-}
-
-function renderEvents(title, events) {
-  const rows = events.map((event) => `
+function renderDailyThreshold(data) {
+  const threshold = data.analysis.threshold || { dailyRows: [], totalRiseCount: 0, totalFallCount: 0, riseRate: 10, fallRate: -10 };
+  const rows = threshold.dailyRows.map((row) => `
     <tr>
-      <td>${formatDateTime(event.candleTime)}</td>
-      <td class="${classBySign(event.eventRate)}">${formatNumber(event.eventRate, 2)}%</td>
-      <td class="${classBySign(event.eventChange)}">${formatNumber(event.eventChange)}</td>
-      <td>${event.beforeDirection}</td>
-      <td class="${classBySign(event.beforeRate)}">${formatNumber(event.beforeRate, 2)}%</td>
-      <td>${formatNumber(event.beforeVolumeRatio, 2)}배</td>
+      <td>${formatDate(row.date)}</td>
+      <td>${formatNumber(row.candleCount)}</td>
+      <td class="${row.riseCount > 0 ? "stock-up" : ""}">${formatNumber(row.riseCount)}</td>
+      <td>${formatTimes(row.riseTimes)}</td>
+      <td class="${row.fallCount > 0 ? "stock-down" : ""}">${formatNumber(row.fallCount)}</td>
+      <td>${formatTimes(row.fallTimes)}</td>
     </tr>
   `).join("");
 
   return `
-    <h3>${title}</h3>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>시간</th>
-            <th>해당 5분 등락률</th>
-            <th>해당 5분 등락폭</th>
-            <th>직전 15분 방향</th>
-            <th>직전 15분 등락률</th>
-            <th>직전 거래량 배율</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>
-  `;
-}
-
-function renderPattern(data) {
-  patternResult.innerHTML = `
     <p class="post-kicker">주식(다음)분봉 패턴</p>
-    <h2 class="post-title">${data.name} 급등/급락 조짐 분석</h2>
+    <h2 class="post-title">${data.name} 5분봉 급등/급락 횟수</h2>
     <p class="post-meta">조회 범위: ${formatDate(data.requestedStartDate)} ~ ${formatDate(data.requestedEndDate)}</p>
     <div class="table-wrap">
       <table class="route-info-table">
@@ -111,27 +68,47 @@ function renderPattern(data) {
             <td>${formatNumber(data.candleCount)}개</td>
           </tr>
           <tr>
-            <th>분석 기준</th>
-            <td>최근 3개월 ${data.unitMinutes}분봉</td>
-            <th>패턴 구간</th>
-            <td>급등 ${data.analysis.surge.count}건 / 급락 ${data.analysis.plunge.count}건</td>
+            <th>상승 기준</th>
+            <td>직전 5분 대비 ${formatNumber(threshold.riseRate)}% 이상</td>
+            <th>하락 기준</th>
+            <td>직전 5분 대비 ${formatNumber(threshold.fallRate)}% 이하</td>
+          </tr>
+          <tr>
+            <th>상승 총횟수</th>
+            <td class="${threshold.totalRiseCount > 0 ? "stock-up" : ""}">${formatNumber(threshold.totalRiseCount)}회</td>
+            <th>하락 총횟수</th>
+            <td class="${threshold.totalFallCount > 0 ? "stock-down" : ""}">${formatNumber(threshold.totalFallCount)}회</td>
           </tr>
         </tbody>
       </table>
     </div>
-    ${renderSummaryText(data)}
-    ${renderEvents("급등 상위 구간", data.analysis.surgeEvents)}
-    ${renderEvents("급락 상위 구간", data.analysis.plungeEvents)}
+    <p class="stock-notice">각 5분봉의 종가를 바로 직전 5분봉 종가와 비교해서 계산했습니다. 장 시작 첫 5분봉은 해당 봉의 시가 대비 종가 기준입니다.</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>일자</th>
+            <th>5분봉 수</th>
+            <th>10% 이상 상승 횟수</th>
+            <th>상승 발생 시간</th>
+            <th>10% 이하 하락 횟수</th>
+            <th>하락 발생 시간</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
   `;
 }
 
 async function loadPattern() {
-  patternTitle.textContent = `${patternName} 주식(다음)분봉 패턴 분석`;
+  patternTitle.textContent = `${patternName} 주식(다음)분봉 패턴`;
   try {
-    patternStatus.textContent = `${patternName} 다음금융 3개월 5분봉 자료를 분석하고 있습니다.`;
+    patternStatus.textContent = `${patternName} 최근 3개월 5분봉 급등/급락 횟수를 계산하고 있습니다.`;
     const data = await apiGet(`/api/stocks/daum-minute-pattern?symbol=${encodeURIComponent(patternSymbol)}&name=${encodeURIComponent(patternName)}`);
-    renderPattern(data);
-    patternStatus.textContent = `${data.candleCount}개 5분봉으로 급등/급락 조짐을 분석했습니다.`;
+    renderDailyThreshold(data);
+    const threshold = data.analysis.threshold;
+    patternStatus.textContent = `10% 이상 상승 ${threshold.totalRiseCount}회, 10% 이하 하락 ${threshold.totalFallCount}회를 일자별로 정리했습니다.`;
   } catch (error) {
     patternResult.innerHTML = `<p class="empty">${error.message}</p>`;
     patternStatus.textContent = error.message;

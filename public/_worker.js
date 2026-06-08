@@ -3638,6 +3638,32 @@ function analyzeDaumMinutePatterns(candles) {
     byDayPrevious.set(day, row.close);
     return { ...row, index, day, change, rate };
   });
+  const dailyThresholdMap = new Map();
+  enriched.forEach((row) => {
+    const date = row.day.replace(/-/g, "");
+    if (!dailyThresholdMap.has(date)) {
+      dailyThresholdMap.set(date, {
+        date,
+        candleCount: 0,
+        riseCount: 0,
+        fallCount: 0,
+        riseTimes: [],
+        fallTimes: []
+      });
+    }
+    const bucket = dailyThresholdMap.get(date);
+    bucket.candleCount += 1;
+    if (row.rate >= 10) {
+      bucket.riseCount += 1;
+      bucket.riseTimes.push(row.stamp);
+    }
+    if (row.rate <= -10) {
+      bucket.fallCount += 1;
+      bucket.fallTimes.push(row.stamp);
+    }
+  });
+  const dailyThresholdRows = Array.from(dailyThresholdMap.values())
+    .sort((a, b) => b.date.localeCompare(a.date));
 
   function buildEvent(row) {
     const before = enriched
@@ -3680,7 +3706,14 @@ function analyzeDaumMinutePatterns(candles) {
     surge: summarizePatternEvents(surgeEvents),
     plunge: summarizePatternEvents(plungeEvents),
     surgeEvents,
-    plungeEvents
+    plungeEvents,
+    threshold: {
+      riseRate: 10,
+      fallRate: -10,
+      totalRiseCount: dailyThresholdRows.reduce((sum, row) => sum + row.riseCount, 0),
+      totalFallCount: dailyThresholdRows.reduce((sum, row) => sum + row.fallCount, 0),
+      dailyRows: dailyThresholdRows
+    }
   };
 }
 
