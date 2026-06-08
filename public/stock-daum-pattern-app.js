@@ -24,7 +24,13 @@ function formatTimes(times) {
   if (!Array.isArray(times) || !times.length) return "-";
   return times.map((value) => {
     const text = String(value || "");
-    return text.length >= 12 ? `${text.slice(8, 10)}:${text.slice(10, 12)}` : text;
+    const dashed = text.match(/\b\d{4}-\d{2}-\d{2}\s+(\d{2}):(\d{2})/);
+    if (dashed) return `${dashed[1]}:${dashed[2]}`;
+    const compact = text.match(/^\d{8}(\d{2})(\d{2})/);
+    if (compact) return `${compact[1]}:${compact[2]}`;
+    const timeOnly = text.match(/\b(\d{1,2}):(\d{2})/);
+    if (timeOnly) return `${timeOnly[1].padStart(2, "0")}:${timeOnly[2]}`;
+    return text;
   }).join(", ");
 }
 
