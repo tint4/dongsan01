@@ -36,7 +36,13 @@ async function apiGet(path) {
 }
 
 function renderDailyThreshold(data) {
-  const threshold = data.analysis.threshold || { dailyRows: [], totalRiseCount: 0, totalFallCount: 0, riseRate: 10, fallRate: -10 };
+  const threshold = data.analysis.threshold || {
+    dailyRows: [],
+    totalRiseCount: 0,
+    totalFallCount: 0,
+    riseRate: 5,
+    fallRate: -5
+  };
   const rows = threshold.dailyRows.map((row) => `
     <tr>
       <td>${formatDate(row.date)}</td>
@@ -48,7 +54,7 @@ function renderDailyThreshold(data) {
     </tr>
   `).join("");
 
-  return `
+  patternResult.innerHTML = `
     <p class="post-kicker">주식(다음)분봉 패턴</p>
     <h2 class="post-title">${data.name} 5분봉 급등/급락 횟수</h2>
     <p class="post-meta">조회 범위: ${formatDate(data.requestedStartDate)} ~ ${formatDate(data.requestedEndDate)}</p>
@@ -89,9 +95,9 @@ function renderDailyThreshold(data) {
           <tr>
             <th>일자</th>
             <th>5분봉 수</th>
-            <th>10% 이상 상승 횟수</th>
+            <th>${formatNumber(threshold.riseRate)}% 이상 상승 횟수</th>
             <th>상승 발생 시간</th>
-            <th>10% 이하 하락 횟수</th>
+            <th>${formatNumber(threshold.fallRate)}% 이하 하락 횟수</th>
             <th>하락 발생 시간</th>
           </tr>
         </thead>
@@ -108,7 +114,7 @@ async function loadPattern() {
     const data = await apiGet(`/api/stocks/daum-minute-pattern?symbol=${encodeURIComponent(patternSymbol)}&name=${encodeURIComponent(patternName)}`);
     renderDailyThreshold(data);
     const threshold = data.analysis.threshold;
-    patternStatus.textContent = `10% 이상 상승 ${threshold.totalRiseCount}회, 10% 이하 하락 ${threshold.totalFallCount}회를 일자별로 정리했습니다.`;
+    patternStatus.textContent = `${formatNumber(threshold.riseRate)}% 이상 상승 ${threshold.totalRiseCount}회, ${formatNumber(threshold.fallRate)}% 이하 하락 ${threshold.totalFallCount}회를 일자별로 정리했습니다.`;
   } catch (error) {
     patternResult.innerHTML = `<p class="empty">${error.message}</p>`;
     patternStatus.textContent = error.message;
