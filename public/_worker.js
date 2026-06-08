@@ -3653,11 +3653,11 @@ function analyzeDaumMinutePatterns(candles) {
     }
     const bucket = dailyThresholdMap.get(date);
     bucket.candleCount += 1;
-    if (row.rate >= 2) {
+    if (row.rate >= 1) {
       bucket.riseCount += 1;
       bucket.riseTimes.push(row.stamp);
     }
-    if (row.rate <= -2) {
+    if (row.rate <= -1) {
       bucket.fallCount += 1;
       bucket.fallTimes.push(row.stamp);
     }
@@ -3708,8 +3708,8 @@ function analyzeDaumMinutePatterns(candles) {
     surgeEvents,
     plungeEvents,
     threshold: {
-      riseRate: 2,
-      fallRate: -2,
+      riseRate: 1,
+      fallRate: -1,
       totalRiseCount: dailyThresholdRows.reduce((sum, row) => sum + row.riseCount, 0),
       totalFallCount: dailyThresholdRows.reduce((sum, row) => sum + row.fallCount, 0),
       dailyRows: dailyThresholdRows
