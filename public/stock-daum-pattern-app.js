@@ -41,8 +41,8 @@ function renderDailyThreshold(data) {
     dailyRows: [],
     totalRiseCount: 0,
     totalFallCount: 0,
-    riseRate: 5,
-    fallRate: -5
+    riseRate: 2,
+    fallRate: -2
   };
   const rows = threshold.dailyRows.map((row) => `
     <tr>
